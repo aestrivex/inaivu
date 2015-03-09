@@ -1,10 +1,16 @@
-from traits.api import HasTraits, Any, Dict, Instance
-
+from __future__ import division
 import os
-import mne
 import numpy as np
+from traits.api import HasTraits, Any, Dict, Instance, Str
+from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
+    HGroup, VGroup, Handler)
+from traitsui.message import error as error_dialog
+
+import mne
 from mayavi import mlab
+from mayavi.core.ui.api import MayaviScene, SceneEditor, MlabSceneModel
 import surfer
+import nibabel as nib
 from collections import OrderedDict
 
 import timesignal
@@ -16,10 +22,26 @@ class InaivuModel(HasTraits):
     ieeg_glyph = Any # Instance(mlab.Glyph3D)
 
     scene = Any # mayavi.core.Scene
+    scene = Instance(MlabSceneModel, ())
 
-    invasive_signal = Instance(timesignal.InvasiveSignal)
+    shell = Dict
 
-    def build_surface(self, figure=None, subjects_dir=None, subject=None):
+    subjects_dir = Str
+    subject = Str('fake_subject')
+
+    invasive_signals = Dict # Str -> Instance(InvasiveSignal)
+    current_invasive_signal = Instance(timesignal.InvasiveSignal)
+
+    traits_view = View(
+        Item('scene', editor=SceneEditor(scene_class=MayaviScene),
+            show_label=False, height=500, width=500),
+        Item('shell', editor=ShellEditor(), height=300, show_label=False),
+        
+        title='Das ist meine Wassermelone es ist MEINE',
+        resizable=True,
+    )
+
+    def build_surface(self, subjects_dir=None, subject=None):
         '''
         creates a pysurfer surface and plots it
 
@@ -39,9 +61,10 @@ class InaivuModel(HasTraits):
             subject = os.environ['SUBJECT']
 
         self.brain = surfer.Brain( subject, hemi='both', surf='pial', 
-            figure=figure, subjects_dir=subjects_dir, curv=False )
+            figure=self.scene.mayavi_scene, subjects_dir=subjects_dir, 
+            curv=False )
 
-        self.scene = self.brain._figures[0][0]
+        #self.scene = self.brain._figures[0][0]
 
         self.brain.toggle_toolbars(True)
 
@@ -50,9 +73,9 @@ class InaivuModel(HasTraits):
             srf._geo_surf.actor.actor.pickable = False
             srf._geo_surf.actor.property.opacity = 0.35
 
-        return self.brain, self.scene
+        return self.brain
 
-    def plot_ieeg(self, raw, figure=None):
+    def plot_ieeg(self, raw):
         '''
         given a raw .fif file with sEEG electrodes, (and potentially other
         electrodes), extract and plot all of the sEEG electrodes in the file
@@ -74,27 +97,105 @@ class InaivuModel(HasTraits):
 
         locs = np.array([e[1] for e in elecs])
 
-        source = mlab.pipeline.scalar_scatter( locs[:,0], locs[:,1], locs[:,2],
-            figure=figure)
+        source = mlab.pipeline.scalar_scatter(locs[:,0], locs[:,1], locs[:,2],
+            figure=self.scene.mayavi_scene)
         
         self.ieeg_glyph = mlab.pipeline.glyph( source, scale_mode='none',
-            scale_factor=6, mode='sphere', figure=figure, color=(1,0,0),
-            name='garbonzo', colormap='BuGn')
+            scale_factor=6, mode='sphere', figure=self.scene.mayavi_scene, 
+            color=(1,0,0), name='garbonzo', colormap='BuGn')
 
         #self.ieeg_glyph = mlab.points3d( locs[:,0], locs[:,1], locs[:,2],
         #    color = (1,0,0), scale_factor=6, figure=figure)
 
         return self.ieeg_glyph
+
+    def plot_ieeg_montage(self, montage):
+        '''
+        given a raw montage file with sEEG electrode coordinates,
+        extract and plot all of the sEEG electrodes in the montage
+
+        Returns
+        -------
+        ieeg_glyph | mlab.glyph
+            Mayavi 3D glyph object
+        '''
+
+        mopath = os.path.abspath(montage)
+        mo = mne.channels.read_montage(mopath)
+
+        elecs = [(name, pos) for name,pos in zip(mo.ch_names, mo.pos)]
+        self.ch_names = mo.ch_names
+        self.ieeg_loc = dict(elecs)
+
+        locs = mo.pos
+
+        source = mlab.pipeline.scalar_scatter(locs[:,0],locs[:,1], locs[:,2],
+            figure=self.scene.mayavi_scene)
+
+        self.ieeg_glyph = mlab.pipeline.glyph( source, scale_mode='none',
+            scale_factor=6, mode='sphere', figure=self.scene.mayavi_scene,
+            color=(1,0,0), name='gableebo', colormap='BuGn')
+
+        return self.ieeg_glyph
+
+    def build_subcortical_display(self, subjects_dir=None, subject=None):
+        '''
+        add transparent voxel structures at the subcortical structures
+        '''
+
+        if subjects_dir==None:
+            subjects_dir = os.environ['SUBJECTS_DIR']
+        if subject==None:
+            subject = os.environ['SUBJECT']
+
+        structures_list = {
+                           'hippocampus': ([53, 17], (.69, .65, .93)),
+                           'amgydala': ([54, 18], (.8, .5, .29)),
+                           'thalamus': ([49, 10], (.318, 1, .447)),
+                           'caudate': ([50, 11], (1, .855, .67)),
+                           'putamen': ([51, 12], (0, .55, 1)),
+                           'insula': ([55, 19], (1, 1, 1)),
+                           'accumbens': ([58, 26], (1, .44, 1)),
+                                                     }
+
+        asegf = os.path.join( subjects_dir, subject, 'mri', 'aseg.mgz')
+        aseg = nib.load( asegf )
+        asegd = aseg.get_data()
+
+        for struct in structures_list:
+            (strucl, strucr), color = structures_list[struct]
+            
+            for strucu in (strucl, strucr):
+
+                strucw = np.where(asegd==strucu)
+
+                if np.size(strucw) == 0:
+                    print 'Nonne skippy %s' % struct
+                    continue
+
+                import geometry as geo
+                xfm = geo.get_vox2rasxfm(asegf, stem='vox2ras-tkr')
+                strucd = np.array(geo.apply_affine( np.transpose(strucw), xfm ))
+
+                print np.shape(strucd)
+
+                src = mlab.pipeline.scalar_scatter( strucd[:,0], strucd[:,1], 
+                    strucd[:,2], figure=self.scene.mayavi_scene )
+
+                mlab.pipeline.glyph( src, scale_mode='none', 
+                    scale_factor=0.4, mode='sphere', opacity=1,
+                    figure=self.scene.mayavi_scene, color=color )
+            
     
-    def show(self):
-        mlab.show()
+    def add_invasive_signal(self, name, signal):
+        #self.invasive_signals.append(signal)
+        self.invasive_signals[name] = signal
+        self.current_invasive_signal = signal
 
-    def add_invasive_signal(self, sfreq, signaldict):
-        self.invasive_signal = timesignal.InvasiveSignal(sampling_rate = sfreq,
-            signals_dict=signaldict, 
-            length=len(signaldict[signaldict.keys()[0]]))
+    def set_current_invasive_signal(self, name):
+        self.current_invasive_signal = self.invasive_signals[name]
 
-    def display_invasive_signal_timepoint(self, idx, ifunc):
+    def _display_invasive_signal_timepoint(self, idx, ifunc):
         '''
         Currently assumes that the sampling frequency is always 1
         '''
@@ -113,7 +214,7 @@ class InaivuModel(HasTraits):
             np.array(scalars))
         self.ieeg_glyph.actor.mapper.scalar_visibility = True
 
-        #mlab.draw(figure=self.scene)
+        mlab.draw(figure=self.scene.mayavi_scene)
 
     def movie(self, movname, invasive=True, noninvasive=True, step_factor=4.,
               framerate=24, interpolation='quadratic',
@@ -127,7 +228,7 @@ class InaivuModel(HasTraits):
             raise NotImplementedError("noninvasive signals not supported yet")
 
         if invasive:
-            if self.invasive_signal is None:
+            if self.current_invasive_signal is None:
                 raise ValueError("No signal provided")
 
         # catch things like, noninvasive and invasive signals being misaligned
@@ -136,8 +237,14 @@ class InaivuModel(HasTraits):
 
         # for now just plot an invasive signal as stupidly as possible
 
-        length = self.invasive_signal.length
-        steps = (length-1)*step_factor + 1
+        if tmin is None:
+            tmin = self.current_invasive_signal.time_start
+
+        if tmax is None:
+            tmax = self.current_invasive_signal.time_end
+
+        length = tmax-tmin
+        steps = length*step_factor + 1
 
         #times = np.linspace(0, length, length, endpoint=False)
         #all_times = np.linspace(0, length, steps, endpoint=False)
@@ -151,8 +258,9 @@ class InaivuModel(HasTraits):
 
         images_written = []
 
-        data = np.array([self.invasive_signal.signals_dict[ch] for ch in
-            self.ch_names])
+        data = np.array(
+            [self.current_invasive_signal.signals_dict[ch][tmin:tmax]
+            for ch in self.ch_names])
         print exact_times.shape, data.shape
         ifunc = interp1d( exact_times, data, interpolation, axis=1)
 
@@ -160,7 +268,7 @@ class InaivuModel(HasTraits):
             frname = fname_pattern % idx
 
             #do the data display method
-            self.display_invasive_signal_timepoint(idx, ifunc)
+            self._display_invasive_signal_timepoint(idx, ifunc)
             #VIEW + INTERPOLATION NOT CORRECT
 
             self.brain.save_image(frname)
@@ -169,3 +277,6 @@ class InaivuModel(HasTraits):
         from surfer.utils import ffmpeg
         ffmpeg(movname, fname_pattern, framerate=framerate, codec=None)
         
+if __name__=='__main__':
+    im = InaivuModel()
+    im.configure_traits()
