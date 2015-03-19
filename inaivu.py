@@ -139,15 +139,16 @@ class InaivuModel(HasTraits):
         return self.ieeg_glyph
 
     def generate_subcortical_surfaces(self, subjects_dir=None, subject=None):
-        structures_list = {
-                           'hippocampus': ([53, 17], (.69, .65, .93)),
-                           'amgydala': ([54, 18], (.8, .5, .29)),
-                           'thalamus': ([49, 10], (.318, 1, .447)),
-                           'caudate': ([50, 11], (1, .855, .67)),
-                           'putamen': ([51, 12], (0, .55, 1)),
-                           'insula': ([55, 19], (1, 1, 1)),
-                           'accumbens': ([58, 26], (1, .44, 1)),
-                                                     }
+        import subprocess
+
+        if subjects_dir is not None:
+            os.environ['SUBJECTS_DIR']=subjects_dir
+        if subject is None:
+            subject = os.environ['SUBJECT']
+
+        aseg2srf_cmd = os.path.realpath('aseg2srf')
+
+        subprocess.call([aseg2srf_cmd, '-s', subject])
 
     def viz_subcortical_surfaces(self, subjects_dir=None, subject=None):
         structures_list = {
@@ -160,14 +161,30 @@ class InaivuModel(HasTraits):
                            'accumbens': ([58, 26], (1, .44, 1)),
                                                      }
 
+        for (strucl, strucr), _ in structures_list.values():
+            
+            for strucu in (strucl, strucr):
+                surf_file = os.path.join(subjects_dir, subject,
+                    'ascii', 'aseg_%03d.srf'%strucu )
+
+                if not os.path.exists(surf_file):
+                    continue
+
+                v, tri = mne.read_surface(surf_file)
+
+                mlab.triangular_mesh( v[:,0], v[:,1], v[:,2], tri,
+                    opacity = .35, 
+                    color=(.5, .5, .5))
+                    #)
+
     def viz_subcortical_points(self, subjects_dir=None, subject=None):
         '''
         add transparent voxel structures at the subcortical structures
         '''
 
-        if subjects_dir==None:
+        if subjects_dir is None:
             subjects_dir = os.environ['SUBJECTS_DIR']
-        if subject==None:
+        if subject is None:
             subject = os.environ['SUBJECT']
 
         structures_list = {
