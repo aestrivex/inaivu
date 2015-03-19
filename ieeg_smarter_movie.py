@@ -15,10 +15,10 @@ raw = '/space/truffles/2/users/rlaplant/ecog/converted_gr.fif'
 ieeg_glyph = im.plot_ieeg( raw )
 
 #inaivu.show()
-import timesignal
+import source_signal
 
-#invsig = timesignal.gen_random_invasive_signal(im.ch_names, 100)
-invsig = timesignal.gen_stupid_gamma_signal(im.ch_names)
+#invsig = source_signal.gen_random_invasive_signal(im.ch_names, 100)
+invsig = source_signal.gen_stupid_gamma_signal(im.ch_names)
 
 im.add_invasive_signal(1, invsig)
 

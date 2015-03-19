@@ -13,7 +13,7 @@ import surfer
 import nibabel as nib
 from collections import OrderedDict
 
-import timesignal
+import invasive_signal
 
 class InaivuModel(HasTraits):
 
@@ -30,7 +30,7 @@ class InaivuModel(HasTraits):
     subject = Str('fake_subject')
 
     invasive_signals = Dict # Str -> Instance(InvasiveSignal)
-    current_invasive_signal = Instance(timesignal.InvasiveSignal)
+    current_invasive_signal = Instance(invasive_signal.InvasiveSignal)
 
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
@@ -138,7 +138,29 @@ class InaivuModel(HasTraits):
 
         return self.ieeg_glyph
 
-    def build_subcortical_display(self, subjects_dir=None, subject=None):
+    def generate_subcortical_surfaces(self, subjects_dir=None, subject=None):
+        structures_list = {
+                           'hippocampus': ([53, 17], (.69, .65, .93)),
+                           'amgydala': ([54, 18], (.8, .5, .29)),
+                           'thalamus': ([49, 10], (.318, 1, .447)),
+                           'caudate': ([50, 11], (1, .855, .67)),
+                           'putamen': ([51, 12], (0, .55, 1)),
+                           'insula': ([55, 19], (1, 1, 1)),
+                           'accumbens': ([58, 26], (1, .44, 1)),
+                                                     }
+
+    def viz_subcortical_surfaces(self, subjects_dir=None, subject=None):
+        structures_list = {
+                           'hippocampus': ([53, 17], (.69, .65, .93)),
+                           'amgydala': ([54, 18], (.8, .5, .29)),
+                           'thalamus': ([49, 10], (.318, 1, .447)),
+                           'caudate': ([50, 11], (1, .855, .67)),
+                           'putamen': ([51, 12], (0, .55, 1)),
+                           'insula': ([55, 19], (1, 1, 1)),
+                           'accumbens': ([58, 26], (1, .44, 1)),
+                                                     }
+
+    def viz_subcortical_points(self, subjects_dir=None, subject=None):
         '''
         add transparent voxel structures at the subcortical structures
         '''
@@ -201,12 +223,15 @@ class InaivuModel(HasTraits):
         '''
         #if idx%1 == 0:
         if False:
-            scalars = [self.invasive_signal.signals_dict[ch][idx] for i,ch in 
-                enumerate(self.ch_names)]
+            #scalars = [self.invasive_signal.signals_dict[ch][idx] for i,ch in 
+            #    enumerate(self.ch_names)]
+
+            scalars = self.current_invasive_signal.mne_source_estimate.data[:,
+                idx]
         else:
             scalars = ifunc(idx)
 
-        print idx
+        #print idx
         #import pdb
         #pdb.set_trace()
 
@@ -216,9 +241,9 @@ class InaivuModel(HasTraits):
 
         mlab.draw(figure=self.scene.mayavi_scene)
 
-    def movie(self, movname, invasive=True, noninvasive=True, step_factor=4.,
-              framerate=24, interpolation='quadratic',
-              tmin=None, tmax=None):
+    def movie(self, movname, invasive=True, noninvasive=True,
+              framerate=24, interpolation='quadratic', dilation=2,
+              tmin=None, tmax=None, normalization='none'):
         from scipy.interpolate import interp1d
 
         if not invasive and not noninvasive:
@@ -230,26 +255,72 @@ class InaivuModel(HasTraits):
         if invasive:
             if self.current_invasive_signal is None:
                 raise ValueError("No signal provided")
+            if self.current_invasive_signal.mne_source_estimate is None:
+                raise ValueError("Signal has no source estimate")
 
-        # catch things like, noninvasive and invasive signals being misaligned
-        # in their temporal extent yet the user asked for them both
 
+        stc = self.current_invasive_signal.mne_source_estimate
 
-        # for now just plot an invasive signal as stupidly as possible
+        sample_rate = stc.tstep
 
         if tmin is None:
-            tmin = self.current_invasive_signal.time_start
+            tmin = stc.tmin
 
         if tmax is None:
-            tmax = self.current_invasive_signal.time_end
+            tmax = self.current_invasive_signal.mne_source_estimate.times[-1]
 
-        length = tmax-tmin
-        steps = length*step_factor + 1
+        smin = np.argmin(np.abs(stc.times - tmin))
+        smax = np.argmin(np.abs(stc.times - tmax))
 
-        #times = np.linspace(0, length, length, endpoint=False)
-        #all_times = np.linspace(0, length, steps, endpoint=False)
-        all_times = np.linspace(0, length-1, steps, endpoint=True)
-        exact_times = np.arange(length)
+        #print tmin, tmax, stc.times
+        #print smin, smax
+
+        # catch if the user asked for invasive timepoints that dont exist
+        if tmin < stc.tmin:
+            raise ValueError("Time window too low for invasive signal")
+        if tmax > stc.times[-1]:
+            raise ValueError("Time window too high for invasive signal")
+
+
+        time_length = tmax-tmin
+        sample_length = smax-smin+1
+
+        tstep_size = 1 / (framerate * dilation)
+        sstep_size = tstep_size / sample_rate
+    
+        if time_length % sstep_size == 0:
+            sstop = smax + sstep_size / 2
+        else:
+            sstop = smax
+
+        movie_sample_times = np.arange(smin, sstop, sstep_size)
+
+        raw_sample_times = np.arange(smin, smax+1)
+
+        #print raw_sample_times.shape
+        #print movie_sample_times.shape
+
+        #steps = sample_length*step_factor + 1
+
+        ##times = np.linspace(0, length, length, endpoint=False)
+        ##all_times = np.linspace(0, length, steps, endpoint=False)
+        #all_times = np.linspace(0, sample_length-1, steps, endpoint=True)
+        exact_times = np.arange(sample_length)
+        #exact_times = np.arange( len(self.current_invasive_signal.
+        #    mne_source_estimate.times) )
+
+        #all_times = interp1d(movie_sample_times, exact_times)
+
+        #this interpolation is exactly linear
+        all_times = interp1d(raw_sample_times, 
+            exact_times)(movie_sample_times)
+
+        steps = len(all_times)
+
+        #print exact_times.shape
+        #print all_times.shape
+
+        #print steps, len(exact_times)
          
         from tempfile import mkdtemp
         tempdir = mkdtemp()
@@ -258,14 +329,30 @@ class InaivuModel(HasTraits):
 
         images_written = []
 
-        data = np.array(
-            [self.current_invasive_signal.signals_dict[ch][tmin:tmax]
-            for ch in self.ch_names])
-        print exact_times.shape, data.shape
-        ifunc = interp1d( exact_times, data, interpolation, axis=1)
+        #data = np.array(
+        #    [self.current_invasive_signal.signals_dict[ch][tmin:tmax]
+        #    for ch in self.ch_names])
+        data = self.current_invasive_signal.mne_source_estimate.data[:,
+            smin:smax+1]
+        #print exact_times.shape, data.shape
 
-        for idx in all_times:
-            frname = fname_pattern % idx
+        if normalization=='none':
+            pass
+        elif normalization=='conservative':
+            dmax = np.max(self.current_invasive_signal.mne_source_estimate.
+                data)
+            dmin = np.min(self.current_invasive_signal.mne_source_estimate.
+                data)
+            data = (data-dmin) / (dmax-dmin)
+        elif normalization=='local': 
+            dmax = np.max(data)
+            dmin = np.min(data)
+            data = (data-dmin) / (dmax-dmin)
+
+        ifunc = interp1d( exact_times , data, interpolation, axis=1)
+
+        for i,idx in enumerate(all_times):
+            frname = fname_pattern % i
 
             #do the data display method
             self._display_invasive_signal_timepoint(idx, ifunc)
