@@ -5,7 +5,13 @@ import numpy as np
 from scipy import io
 import mne
 
-class InvasiveSignal(HasTraits):
+class SourceSignal(HasTraits):
+    mne_source_estimate = Any #Instance(mne._BaseSourceEstimate)
+
+class NoninvasiveSignal(SourceSignal):
+    pass
+
+class InvasiveSignal(SourceSignal):
     mne_source_estimate = Any #Instance(mne._BaseSourceEstimate)
     ix_pos_map = Any #Instance(np.ndarray)
     ch_names = List
@@ -13,7 +19,7 @@ class InvasiveSignal(HasTraits):
 def load_stc(stcf):
     return mne.read_source_estimate(stcf)
 
-def signal_from_stc(stc, ordering=None):
+def signal_from_stc(stc, ordering=None, invasive=False):
     ivs = InvasiveSignal()
     ivs.mne_source_estimate = stc
 
@@ -76,6 +82,9 @@ def gen_stupid_gamma_signal(ch_names, hemi='rh'):
     return ivs
 
 def stc_from_fiff(fiff_file, names=None):
+    '''
+    Creates a source estimate from the sensor space channels in a fiff file
+    '''
     ra = mne.io.Raw(fiff_file)
 
     tmin = ra.index_as_time(0)

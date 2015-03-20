@@ -13,7 +13,7 @@ import surfer
 import nibabel as nib
 from collections import OrderedDict
 
-import invasive_signal
+import source_signal
 
 class InaivuModel(HasTraits):
 
@@ -30,7 +30,7 @@ class InaivuModel(HasTraits):
     subject = Str('fake_subject')
 
     invasive_signals = Dict # Str -> Instance(InvasiveSignal)
-    current_invasive_signal = Instance(invasive_signal.InvasiveSignal)
+    current_invasive_signal = Instance(source_signal.InvasiveSignal)
 
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
