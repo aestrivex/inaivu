@@ -1,7 +1,7 @@
 from __future__ import division
 import os
 import numpy as np
-from traits.api import HasTraits, Any, Dict, Instance, Str
+from traits.api import HasTraits, Any, Dict, Instance, Str, Float
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler)
 from traitsui.message import error as error_dialog
@@ -31,6 +31,14 @@ class InaivuModel(HasTraits):
 
     invasive_signals = Dict # Str -> Instance(InvasiveSignal)
     current_invasive_signal = Instance(source_signal.InvasiveSignal)
+
+    noninvasive_signals = Dict # Str -> Instance(NoninvasiveSignal)
+    current_noninvasive_signal = Instance(source_signal.NoninvasiveSignal)
+
+    opacity = Float(.35)
+
+    smoothl_mat = Any #Either(np.ndarray, None)
+    smoothr_mat = Any #Either(np.ndarray, None)
 
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
@@ -71,7 +79,7 @@ class InaivuModel(HasTraits):
         #set the surface unpickable
         for srf in self.brain.brains:
             srf._geo_surf.actor.actor.pickable = False
-            srf._geo_surf.actor.property.opacity = 0.35
+            srf._geo_surf.actor.property.opacity = self.opacity
 
         return self.brain
 
@@ -234,40 +242,124 @@ class InaivuModel(HasTraits):
     def set_current_invasive_signal(self, name):
         self.current_invasive_signal = self.invasive_signals[name]
 
+    def add_noninvasive_signal(self, name, signal):
+        self.noninvasive_signals[name] = signal
+        self.current_noninvasive_signal = signal
+
+    def set_current_noninvasive_signal(self, name):
+        self.current_noninvasive_signal = self.noninvasive_signals[name]
+
     def _display_invasive_signal_timepoint(self, idx, ifunc):
         '''
         Currently assumes that the sampling frequency is always 1
         '''
         #if idx%1 == 0:
-        if False:
-            #scalars = [self.invasive_signal.signals_dict[ch][idx] for i,ch in 
-            #    enumerate(self.ch_names)]
-
-            scalars = self.current_invasive_signal.mne_source_estimate.data[:,
-                idx]
-        else:
-            scalars = ifunc(idx)
-
-        #print idx
-        #import pdb
-        #pdb.set_trace()
+        #if False:
+        #    scalars = self.current_invasive_signal.mne_source_estimate.data[:,
+        #        idx]
+        #else:
+        scalars = ifunc(idx)
 
         self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
             np.array(scalars))
         self.ieeg_glyph.actor.mapper.scalar_visibility = True
 
-        mlab.draw(figure=self.scene.mayavi_scene)
+    def _display_noninvasive_signal_timepoint(self, idx, ifunc, 
+            interpolation='quadratic'):
+        #    scalars = (self.current_noninvasive_signal.mne_source_estimate.
+        #        data[:,idx])
+        #else:
+        scalars = ifunc(idx)
+        #print idx
+
+        lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
+        rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
+
+        print np.shape(scalars)
+
+        print lvt
+        print rvt
+        
+        if len(lvt) > 0:
+            lh_scalar = scalars[lvt]
+            lh_surf = self.brain.brains[0]._geo_surf
+            if len(lvt) < len(self.brain.geo['lh'].coords):
+                lh_scalar = self.smoothl * lh_scalar
+
+            lh_surf.mlab_source.scalars = lh_scalar
+
+        if len(rvt) > 0:
+            rh_scalar = scalars[rvt]
+            rh_surf = self.brain.brains[1]._geo_surf
+            if len(rvt) < len(self.brain.geo['rh'].coords):
+                rh_scalar = self.smoothr * rh_scalar
+
+            rh_surf.mlab_source.scalars = rh_scalar
+
+        #self.brain.set_data_time_index(idx, interpolation)
 
     def movie(self, movname, invasive=True, noninvasive=True,
               framerate=24, interpolation='quadratic', dilation=2,
-              tmin=None, tmax=None, normalization='none'):
-        from scipy.interpolate import interp1d
+              tmin=None, tmax=None, normalization='none', debug_labels=False,
+              smoothing_steps=20):
+        #potentially worth providing different options for normalization and
+        #interpolation for noninvasive and invasive data
+
 
         if not invasive and not noninvasive:
             raise ValueError("That movie is not interesting")
 
         if noninvasive:
-            raise NotImplementedError("noninvasive signals not supported yet")
+            if self.current_noninvasive_signal is None:
+                raise ValueError("No signal provided")
+            if self.current_noninvasive_signal.mne_source_estimate is None:
+                raise ValueError("Signal has no source estimate")
+
+            ni_times, _, nfunc = self._create_movie_samples(
+                self.current_noninvasive_signal, tmin=tmin, tmax=tmax,
+                framerate=framerate, dilation=dilation,
+                interpolation=interpolation, normalization=normalization,
+                is_invasive=False)
+
+            nsteps = len(ni_times)
+            steps = nsteps
+
+            lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
+            rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
+
+            if 0 < len(lvt) < len(self.brain.geo['lh'].coords):
+                ladj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
+                self.smoothl = surfer.utils.smoothing_matrix(lvt, ladj, 
+                    smoothing_steps)
+
+            if 0 < len(rvt) < len(sefl.brain.geo['rh'].coords):
+                radj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
+                self.smoothr = surfer.utils.smoothing_matrix(lvt, ladj,
+                    smoothing_steps)
+
+            for brain in self.brain.brains:
+                brain._geo_surf.module_manager.scalar_lut_manager.lut_mode = (
+                    'RdBu')
+                brain._geo_surf.module_manager.scalar_lut_manager.reverse_lut=(
+                    True)
+                brain._geo_surf.actor.mapper.scalar_visibility=True
+
+            if len(lvt) > 0:
+                lh_surf = self.brain.brains[0]._geo_surf
+            if len(rvt) > 0:
+                rh_surf = self.brain.brains[1]._geo_surf
+
+#            time_label = 'diebhog thyme %d' if debug_labels else None
+#            if (np.size(self.current_noninvasive_signal.mne_source_estimate.
+#                lh_vertno) > 1):
+#                    self.brain.add_data( self.current_noninvasive_signal.
+#                        mne_source_estimate.lh_data, hemi='lh',
+#                        alpha=self.opacity, time_label=time_label )
+#            if (np.size(self.current_noninvasive_signal.mne_source_estimate.
+#                rh_vertno) > 1):
+#                    self.brain.add_data( self.current_noninvasive_signal.
+#                        mne_source_estimate.rh_data, hemi='rh', 
+#                        alpha=self.opacity, time_label=time_label ) 
 
         if invasive:
             if self.current_invasive_signal is None:
@@ -275,8 +367,56 @@ class InaivuModel(HasTraits):
             if self.current_invasive_signal.mne_source_estimate is None:
                 raise ValueError("Signal has no source estimate")
 
+            i_times, _, ifunc = self._create_movie_samples(
+                self.current_invasive_signal, tmin=tmin, tmax=tmax,
+                framerate=framerate, dilation=dilation,
+                interpolation=interpolation, normalization=normalization,
+                is_invasive=True)
 
-        stc = self.current_invasive_signal.mne_source_estimate
+            isteps = len(i_times)
+            steps = isteps
+
+        if noninvasive and invasive:
+            if isteps != nsteps:
+                raise ValueError("Bad sampling")
+             
+
+        from tempfile import mkdtemp
+        tempdir = mkdtemp()
+        frame_pattern = 'frame%%0%id.png' % (
+            np.floor(np.log10(steps)) + 1)
+        fname_pattern = os.path.join(tempdir, frame_pattern)
+
+        images_written = []
+
+        for i in xrange(steps):
+            frname = fname_pattern % i
+
+            #do the data display method
+            if invasive:
+                iidx = i_times[i]
+                self._display_invasive_signal_timepoint(iidx, ifunc)
+        
+            if noninvasive:
+                nidx = ni_times[i]
+                self._display_noninvasive_signal_timepoint(nidx, nfunc,
+                    interpolation=interpolation)
+
+            mlab.draw(figure=self.scene.mayavi_scene)
+            self.brain.save_image(frname)
+
+        #return images_written
+        from surfer.utils import ffmpeg
+        ffmpeg(movname, fname_pattern, framerate=framerate, codec=None)
+
+    def _create_movie_samples(self, sig, framerate=24, 
+            interpolation='quadratic',
+            dilation=2, tmin=None, tmax=None, normalization='none',
+            is_invasive=False):
+
+        from scipy.interpolate import interp1d
+
+        stc = sig.mne_source_estimate
 
         sample_rate = stc.tstep
 
@@ -284,20 +424,18 @@ class InaivuModel(HasTraits):
             tmin = stc.tmin
 
         if tmax is None:
-            tmax = self.current_invasive_signal.mne_source_estimate.times[-1]
+            tmax = (stc.times[-1])
 
         smin = np.argmin(np.abs(stc.times - tmin))
         smax = np.argmin(np.abs(stc.times - tmax))
 
-        #print tmin, tmax, stc.times
-        #print smin, smax
-
         # catch if the user asked for invasive timepoints that dont exist
         if tmin < stc.tmin:
-            raise ValueError("Time window too low for invasive signal")
+            raise ValueError("Time window too low for %s signal" %
+                'invasive' if is_invasive else 'noninvasive')
         if tmax > stc.times[-1]:
-            raise ValueError("Time window too high for invasive signal")
-
+            raise ValueError("Time window too high for %s signal" %
+                'invasive' if is_invasive else 'noninvasive')
 
         time_length = tmax-tmin
         sample_length = smax-smin+1
@@ -305,53 +443,32 @@ class InaivuModel(HasTraits):
         tstep_size = 1 / (framerate * dilation)
         sstep_size = tstep_size / sample_rate
     
-        if time_length % sstep_size == 0:
+        if np.allclose(sample_length % sstep_size, 0, atol=sample_rate/2):
             sstop = smax + sstep_size / 2
         else:
             sstop = smax
 
-        movie_sample_times = np.arange(smin, sstop, sstep_size)
+        if np.allclose(time_length % tstep_size, 0):
+            tstop = tmax + tstep_size / 2
+        else:
+            tstop = tmax
 
+        movie_sample_times = np.arange(smin, smax, sstep_size)
         raw_sample_times = np.arange(smin, smax+1)
 
-        #print raw_sample_times.shape
-        #print movie_sample_times.shape
-
-        #steps = sample_length*step_factor + 1
-
-        ##times = np.linspace(0, length, length, endpoint=False)
-        ##all_times = np.linspace(0, length, steps, endpoint=False)
-        #all_times = np.linspace(0, sample_length-1, steps, endpoint=True)
         exact_times = np.arange(sample_length)
-        #exact_times = np.arange( len(self.current_invasive_signal.
-        #    mne_source_estimate.times) )
-
-        #all_times = interp1d(movie_sample_times, exact_times)
 
         #this interpolation is exactly linear
         all_times = interp1d(raw_sample_times, 
             exact_times)(movie_sample_times)
 
-        steps = len(all_times)
+        data = stc.data[:,smin:smax+1]
 
-        #print exact_times.shape
-        #print all_times.shape
-
-        #print steps, len(exact_times)
-         
-        from tempfile import mkdtemp
-        tempdir = mkdtemp()
-        frame_pattern = 'frame%%0%id.png' % (np.floor(np.log10(steps)) + 1)
-        fname_pattern = os.path.join(tempdir, frame_pattern)
-
-        images_written = []
-
-        #data = np.array(
-        #    [self.current_invasive_signal.signals_dict[ch][tmin:tmax]
-        #    for ch in self.ch_names])
-        data = self.current_invasive_signal.mne_source_estimate.data[:,
-            smin:smax+1]
-        #print exact_times.shape, data.shape
+        print data.shape
+        print all_times.shape
+        print sstep_size, tstep_size
+        print tmin, tmax, tstop, smin, smax, sstop
+        print sample_rate
 
         if normalization=='none':
             pass
@@ -366,21 +483,14 @@ class InaivuModel(HasTraits):
             dmin = np.min(data)
             data = (data-dmin) / (dmax-dmin)
 
-        ifunc = interp1d( exact_times , data, interpolation, axis=1)
+        interp_func = interp1d( exact_times , data, interpolation, axis=1)
 
-        for i,idx in enumerate(all_times):
-            frname = fname_pattern % i
-
-            #do the data display method
-            self._display_invasive_signal_timepoint(idx, ifunc)
-            #VIEW + INTERPOLATION NOT CORRECT
-
-            self.brain.save_image(frname)
-
-        #return images_written
-        from surfer.utils import ffmpeg
-        ffmpeg(movname, fname_pattern, framerate=framerate, codec=None)
+        return all_times, data, interp_func
         
 if __name__=='__main__':
+    #force Qt to relay ctrl+C
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+
     im = InaivuModel()
     im.configure_traits()

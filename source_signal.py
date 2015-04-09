@@ -4,6 +4,7 @@ from traits.api import HasTraits, Float, Dict, Int, Any, List
 import numpy as np
 from scipy import io
 import mne
+import nibabel as nib
 
 class SourceSignal(HasTraits):
     mne_source_estimate = Any #Instance(mne._BaseSourceEstimate)
@@ -20,13 +21,16 @@ def load_stc(stcf):
     return mne.read_source_estimate(stcf)
 
 def signal_from_stc(stc, ordering=None, invasive=False):
-    ivs = InvasiveSignal()
-    ivs.mne_source_estimate = stc
+    if invasive:
+        sig = InvasiveSignal()
+        if ordering is not None:
+            sig.ix_pos_map, sig.ch_names = load_ordering_file(ordering)
+    else:
+        sig = NoninvasiveSignal()
 
-    if ordering is not None:
-        ivs.ix_pos_map, ivs.ch_names = load_ordering_file(ordering)
+    sig.mne_source_estimate = stc
         
-    return ivs
+    return sig
 
 def load_montage(montage_file):
     return mne.channels.read_montage(os.path.realpath(montage_file))
@@ -108,6 +112,47 @@ def stc_from_fiff(fiff_file, names=None):
     #by arbitrary choice we use the RH no matter where are the electrodes
     stc = mne.SourceEstimate(ra[:][0][np.sort(vertnos)],
         vertices = [np.array(()), np.sort(vertnos)], tmin=tmin, tstep=tstep)
+
+    return stc, ordering_names
+
+def textfile_from_fsfast_nifti(fsfast_nifti_file, outfile):
+    res = nib.load(fsfast_nifti_file)
+    resd = res.get_data()
+    np.savetxt(outfile, np.squeeze(res).T)
+
+def stc_from_fsfast_nifti(fsfast_nifti_file, tr, hemi=None):
+    res = nib.load(fsfast_nifti_file)
+    resd = np.squeeze(res.get_data())
+    return _stc_from_array(resd, tr, fsfast_nifti_file, hemi=hemi)
+
+def stc_from_text_file(text_file, tr, hemi=None):
+    data = np.loadtxt(text_file)
+    return _stc_from_array(data, tr, text_file, hemi=hemi)
+
+def _stc_from_array(data, tr, filename, hemi=None):
+    #TODO allow bihemi stc
+    nvert, ntimes = data.shape
+
+    if hemi==None:
+        #try to read hemi from filename
+        lh = (filename.find('lh') != -1)
+        rh = (filename.find('rh') != -1)
+
+        if lh and not rh:
+            hemi = 'lh'
+        if rh and not lh:
+            hemi = 'rh'
+
+    if hemi not in ('lh','rh'):
+        raise ValueError('Correct hemisphere not provided and could not figure it'
+            ' out')
+
+    if hemi=='lh':
+        vertices = [np.arange(nvert), np.array(())]
+    else:
+        vertices = [np.array(()), np.arange(nvert)]
+
+    stc = mne.SourceEstimate( data, vertices=vertices, tmin=0, tstep=tr )
 
     return stc
 
