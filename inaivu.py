@@ -315,7 +315,7 @@ class InaivuModel(HasTraits):
             if self.current_noninvasive_signal.mne_source_estimate is None:
                 raise ValueError("Signal has no source estimate")
 
-            ni_times, _, nfunc = self._create_movie_samples(
+            ni_times, _, nfunc, nr_samples = self._create_movie_samples(
                 self.current_noninvasive_signal, tmin=tmin, tmax=tmax,
                 framerate=framerate, dilation=dilation,
                 interpolation=interpolation, normalization=normalization,
@@ -367,11 +367,14 @@ class InaivuModel(HasTraits):
             if self.current_invasive_signal.mne_source_estimate is None:
                 raise ValueError("Signal has no source estimate")
 
-            i_times, _, ifunc = self._create_movie_samples(
+            if not noninvasive:
+                nr_samples = -1
+
+            i_times, _, ifunc, _ = self._create_movie_samples(
                 self.current_invasive_signal, tmin=tmin, tmax=tmax,
                 framerate=framerate, dilation=dilation,
                 interpolation=interpolation, normalization=normalization,
-                is_invasive=True)
+                is_invasive=True, nr_samples=nr_samples)
 
             isteps = len(i_times)
             steps = isteps
@@ -407,12 +410,12 @@ class InaivuModel(HasTraits):
 
         #return images_written
         from surfer.utils import ffmpeg
-        ffmpeg(movname, fname_pattern, framerate=framerate, codec=None)
+        ffmpeg(movname, fname_pattern, framerate=framerate,)
 
     def _create_movie_samples(self, sig, framerate=24, 
             interpolation='quadratic',
             dilation=2, tmin=None, tmax=None, normalization='none',
-            is_invasive=False):
+            is_invasive=False, nr_samples=-1):
 
         from scipy.interpolate import interp1d
 
@@ -442,21 +445,42 @@ class InaivuModel(HasTraits):
 
         tstep_size = 1 / (framerate * dilation)
         sstep_size = tstep_size / sample_rate
+        sstep_ceil = int(np.ceil(sstep_size))
     
-        if np.allclose(sample_length % sstep_size, 0, atol=sample_rate/2):
-            sstop = smax + sstep_size / 2
-        else:
-            sstop = smax
+        #to calculate the desired number of samples in the time window, 
+        #use the code which checks for step size and optionally adds 1 sample
+        #however, the other signal might have a different sampling rate and
+        #lack the extra sample even if this signal has it exactly.
+        #therefore to compromise, don't do this check or try to interpret
+        #at all the missing sample, instead use the wrong number of samples
+        #and interpolate to the right thing as close as possible.
 
-        if np.allclose(time_length % tstep_size, 0):
-            tstop = tmax + tstep_size / 2
-        else:
-            tstop = tmax
+        #note that this solution has minor temporal instability inherent;
+        #that is to say we are losing information beyond interpolation
+        #that might be accurately sampled in one or potentially both
+        #signals due to the sampling differences between the signals.
+        #this is not a practical problem.
+        if nr_samples == -1:
+            if np.allclose(time_length % tstep_size, 0, atol=tstep_size/2):
+                sstop = smax + sstep_size / 2
+            else:
+                sstop = smax
 
-        movie_sample_times = np.arange(smin, smax, sstep_size)
+            nr_samples = len(np.arange(smin, sstop, sstep_size))
+        # end
+
+        movie_sample_times = np.linspace(smin, smax, num=nr_samples)
+
+        #smin is the minimum possible sample, the max is smax
+        #to get to exactly smax we need to use smax+1
         raw_sample_times = np.arange(smin, smax+1)
 
         exact_times = np.arange(sample_length)
+
+        print sstep_size, tstep_size
+        print tmin, tmax, smin, smax
+        print sample_rate
+        print movie_sample_times.shape, raw_sample_times.shape
 
         #this interpolation is exactly linear
         all_times = interp1d(raw_sample_times, 
@@ -466,9 +490,7 @@ class InaivuModel(HasTraits):
 
         print data.shape
         print all_times.shape
-        print sstep_size, tstep_size
-        print tmin, tmax, tstop, smin, smax, sstop
-        print sample_rate
+        #print tmin, tmax, tstop, smin, smax, sstop
 
         if normalization=='none':
             pass
@@ -485,7 +507,7 @@ class InaivuModel(HasTraits):
 
         interp_func = interp1d( exact_times , data, interpolation, axis=1)
 
-        return all_times, data, interp_func
+        return all_times, data, interp_func, nr_samples
         
 if __name__=='__main__':
     #force Qt to relay ctrl+C
