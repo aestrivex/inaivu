@@ -250,14 +250,6 @@ class InaivuModel(HasTraits):
         self.current_noninvasive_signal = self.noninvasive_signals[name]
 
     def _display_invasive_signal_timepoint(self, idx, ifunc):
-        '''
-        Currently assumes that the sampling frequency is always 1
-        '''
-        #if idx%1 == 0:
-        #if False:
-        #    scalars = self.current_invasive_signal.mne_source_estimate.data[:,
-        #        idx]
-        #else:
         scalars = ifunc(idx)
 
         self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
@@ -266,20 +258,11 @@ class InaivuModel(HasTraits):
 
     def _display_noninvasive_signal_timepoint(self, idx, ifunc, 
             interpolation='quadratic'):
-        #    scalars = (self.current_noninvasive_signal.mne_source_estimate.
-        #        data[:,idx])
-        #else:
         scalars = ifunc(idx)
-        #print idx
 
         lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
         rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
 
-        print np.shape(scalars)
-
-        print lvt
-        print rvt
-        
         if len(lvt) > 0:
             lh_scalar = scalars[lvt]
             lh_surf = self.brain.brains[0]._geo_surf
@@ -298,9 +281,75 @@ class InaivuModel(HasTraits):
 
         #self.brain.set_data_time_index(idx, interpolation)
 
+    def set_timepoint(self, time, invasive=True, noninvasive=True):
+        if noninvasive:
+            self._set_noninvasive_timepoint(time)
+        if invasive:
+            self._set_invasive_timepoint(time)
+
+    def _set_invasive_timepoint(self, t):
+        if self.current_invasive_signal is None:
+            return
+        stc = self.current_invasive_signal.mne_source_estimate
+
+        sample_time = np.argmin(np.abs(stc.times - t))
+        scalars = stc.data[:,sample_time]
+
+        self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
+            np.array(scalars))
+        self.ieeg_glyph.actor.mapper.scalar_visibility = True
+
+    def _setup_noninvasive_viz(self):
+        lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
+        rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
+
+        if 0 < len(lvt) < len(self.brain.geo['lh'].coords):
+            ladj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
+            self.smoothl = surfer.utils.smoothing_matrix(lvt, ladj, 
+                smoothing_steps)
+
+        if 0 < len(rvt) < len(self.brain.geo['rh'].coords):
+            radj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
+            self.smoothr = surfer.utils.smoothing_matrix(lvt, ladj,
+                smoothing_steps)
+
+        for brain in self.brain.brains:
+            brain._geo_surf.module_manager.scalar_lut_manager.lut_mode = (
+                'RdBu')
+            brain._geo_surf.module_manager.scalar_lut_manager.reverse_lut=(
+                True)
+            brain._geo_surf.actor.mapper.scalar_visibility=True
+
+    def _set_noninvasive_timepoint(self, t):
+        if self.current_noninvasive_signal is None:
+            return
+        stc = self.current_noninvasive_signal.mne_source_estimate
+
+        sample_time = np.argmin(np.abs(stc.times - t))
+        scalars = stc.data[:,sample_time]
+
+        lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
+        rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
+
+        self._setup_noninvasive_viz()
+    
+        if len(lvt) > 0:
+            lh_scalar = scalars[lvt]
+            lh_surf = self.brain.brains[0]._geo_surf
+            if len(lvt) < len(self.brain.geo['lh'].coords):
+                lh_scalar = self.smoothl * lh_scalar
+            lh_surf.mlab_source.scalars = lh_scalar
+
+        if len(rvt) > 0:
+            rh_scalar = scalars[rvt]
+            rh_surf = self.brain.brains[1]._geo_surf
+            if len(rvt) < len(self.brain.geo['rh'].coords):
+                rh_scalar = self.smoothr * rh_scalar
+            rh_surf.mlab_source.scalars = rh_scalar
+
     def movie(self, movname, invasive=True, noninvasive=True,
               framerate=24, interpolation='quadratic', dilation=2,
-              tmin=None, tmax=None, normalization='none', debug_labels=False,
+              tmin=None, tmax=None, normalization='local', debug_labels=False,
               smoothing_steps=20):
         #potentially worth providing different options for normalization and
         #interpolation for noninvasive and invasive data
@@ -327,22 +376,7 @@ class InaivuModel(HasTraits):
             lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
             rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
 
-            if 0 < len(lvt) < len(self.brain.geo['lh'].coords):
-                ladj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
-                self.smoothl = surfer.utils.smoothing_matrix(lvt, ladj, 
-                    smoothing_steps)
-
-            if 0 < len(rvt) < len(sefl.brain.geo['rh'].coords):
-                radj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
-                self.smoothr = surfer.utils.smoothing_matrix(lvt, ladj,
-                    smoothing_steps)
-
-            for brain in self.brain.brains:
-                brain._geo_surf.module_manager.scalar_lut_manager.lut_mode = (
-                    'RdBu')
-                brain._geo_surf.module_manager.scalar_lut_manager.reverse_lut=(
-                    True)
-                brain._geo_surf.actor.mapper.scalar_visibility=True
+            self._setup_noninvasive_viz()
 
             if len(lvt) > 0:
                 lh_surf = self.brain.brains[0]._geo_surf
@@ -405,16 +439,27 @@ class InaivuModel(HasTraits):
                 self._display_noninvasive_signal_timepoint(nidx, nfunc,
                     interpolation=interpolation)
 
+            self.scene.render()
             mlab.draw(figure=self.scene.mayavi_scene)
+            self._force_render()
             self.brain.save_image(frname)
 
         #return images_written
         from surfer.utils import ffmpeg
         ffmpeg(movname, fname_pattern, framerate=framerate,)
 
+    def _force_render(self):
+        from pyface.api import GUI
+        _gui = GUI()
+        orig_val = _gui.busy
+        _gui.set_busy(busy=True)
+        _gui.process_events()
+        _gui.set_busy(busy=orig_val)
+        _gui.process_events()
+
     def _create_movie_samples(self, sig, framerate=24, 
             interpolation='quadratic',
-            dilation=2, tmin=None, tmax=None, normalization='none',
+            dilation=2, tmin=None, tmax=None, normalization='local',
             is_invasive=False, nr_samples=-1):
 
         from scipy.interpolate import interp1d
@@ -477,10 +522,10 @@ class InaivuModel(HasTraits):
 
         exact_times = np.arange(sample_length)
 
-        print sstep_size, tstep_size
-        print tmin, tmax, smin, smax
-        print sample_rate
-        print movie_sample_times.shape, raw_sample_times.shape
+        #print sstep_size, tstep_size
+        #print tmin, tmax, smin, smax
+        #print sample_rate
+        #print movie_sample_times.shape, raw_sample_times.shape
 
         #this interpolation is exactly linear
         all_times = interp1d(raw_sample_times, 
@@ -488,9 +533,8 @@ class InaivuModel(HasTraits):
 
         data = stc.data[:,smin:smax+1]
 
-        print data.shape
-        print all_times.shape
-        #print tmin, tmax, tstop, smin, smax, sstop
+        #print data.shape
+        #print all_times.shape
 
         if normalization=='none':
             pass

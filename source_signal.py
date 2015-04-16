@@ -125,9 +125,37 @@ def stc_from_fsfast_nifti(fsfast_nifti_file, tr, hemi=None):
     resd = np.squeeze(res.get_data())
     return _stc_from_array(resd, tr, fsfast_nifti_file, hemi=hemi)
 
+def stc_from_two_fsfast_niftis(lh_nifti, rh_nifti, tr):
+    res_lh = nib.load(lh_nifti)
+    res_rh = nib.load(rh_nifti)
+    resd_lh = np.squeeze(res_lh.get_data())
+    resd_rh = np.squeeze(res_rh.get_data())
+    return _stc_from_bihemi_array(resd_lh, resd_rh, tr)
+
 def stc_from_text_file(text_file, tr, hemi=None):
     data = np.loadtxt(text_file)
     return _stc_from_array(data, tr, text_file, hemi=hemi)
+
+def build_bihemi_stc(lh_stc, rh_stc):
+    lh_data = lh_stc.data
+    rh_data = rh_stc.data
+
+    lh_verts = lh_stc.vertices[0]
+    rh_verts = rh_stc.vertices[1]
+
+    lh_tmin = lh_stc.tmin
+    rh_tmin = rh_stc.tmin
+
+    lh_tstep = lh_stc.tstep
+    rh_tstep = rh_stc.tstep
+
+    if lh_tmin != rh_tmin or lh_tstep != rh_tstep:
+        raise ValueError("Timing must be consistent in left and right stc")
+
+    stc = mne.SourceEstimate( np.vstack((lh_data, rh_data)),
+        vertices=[lh_verts, rh_verts], tmin=lh_tmin, tstep=lh_tstep)
+
+    return stc
 
 def _stc_from_array(data, tr, filename, hemi=None):
     #TODO allow bihemi stc
@@ -151,6 +179,20 @@ def _stc_from_array(data, tr, filename, hemi=None):
         vertices = [np.arange(nvert), np.array(())]
     else:
         vertices = [np.array(()), np.arange(nvert)]
+
+    stc = mne.SourceEstimate( data, vertices=vertices, tmin=0, tstep=tr )
+
+    return stc
+
+def _stc_from_bihemi_array(lh_data, rh_data, tr, filename):
+    lh_nvert, lh_ntimes = lh_data.shape
+    rh_nvert, rh_ntimes = rh_data.shape
+
+    if lh_ntimes != rh_ntimes:
+        raise ValueError("Inconsistent timing across hemispheres")
+
+    data = np.vstack((lh_data, rh_data))
+    vertices = [np.arange(lh_nvert), np.arange(rh_nvert)]
 
     stc = mne.SourceEstimate( data, vertices=vertices, tmin=0, tstep=tr )
 
