@@ -41,6 +41,7 @@ def load_ordering_file(ordering_file):
 
     with open(ordering_file) as fd:
         for i,ln in enumerate(fd):
+            ln = ln.strip()
             if ln=='delete':
                 continue
             ixes.append(i)

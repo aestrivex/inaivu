@@ -1,9 +1,10 @@
 from __future__ import division
 import os
 import numpy as np
-from traits.api import HasTraits, Any, Dict, Instance, Str, Float
+from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
+    Range, on_trait_change)
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
-    HGroup, VGroup, Handler)
+    HGroup, VGroup, Handler, RangeEditor)
 from traitsui.message import error as error_dialog
 
 import mne
@@ -24,6 +25,10 @@ class InaivuModel(HasTraits):
     scene = Any # mayavi.core.Scene
     scene = Instance(MlabSceneModel, ())
 
+    _time_low = Float(0)
+    _time_high = Float(1)
+    time_slider = Float(0)
+
     shell = Dict
 
     subjects_dir = Str
@@ -43,6 +48,13 @@ class InaivuModel(HasTraits):
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
             show_label=False, height=500, width=500),
+        VGroup(
+            Item('time_slider', 
+                editor=RangeEditor(mode='xslider', low_name='_time_low',
+                    high_name='_time_high', format='%.3f', is_float=True), 
+                label='time'),
+        ),
+        #Item('time_slider', style='custom', show_label=False),
         Item('shell', editor=ShellEditor(), height=300, show_label=False),
         
         title='Das ist meine Wassermelone es ist MEINE',
@@ -83,6 +95,15 @@ class InaivuModel(HasTraits):
 
         return self.brain
 
+    def invasive_callback(self, picker):
+        if picker.actor not in self.ieeg_glyph.actor.actors:
+            return
+
+        ptid = int(picker.point_id / self.ieeg_glyph.glyph.glyph_source.
+            glyph_source.output.points.to_array().shape[0])
+
+        print ptid
+        
     def plot_ieeg(self, raw):
         '''
         given a raw .fif file with sEEG electrodes, (and potentially other
@@ -114,6 +135,9 @@ class InaivuModel(HasTraits):
 
         #self.ieeg_glyph = mlab.points3d( locs[:,0], locs[:,1], locs[:,2],
         #    color = (1,0,0), scale_factor=6, figure=figure)
+
+        pick = self.scene.mayavi_scene.on_mouse_pick(self.invasive_callback)
+        pick.tolerance = .1
 
         return self.ieeg_glyph
 
@@ -180,10 +204,12 @@ class InaivuModel(HasTraits):
 
                 v, tri = mne.read_surface(surf_file)
 
-                mlab.triangular_mesh( v[:,0], v[:,1], v[:,2], tri,
+                surf = mlab.triangular_mesh( v[:,0], v[:,1], v[:,2], tri,
                     opacity = .35, 
                     color=(.5, .5, .5))
                     #)
+
+                surf.actor.actor.pickable = False
 
     def viz_subcortical_points(self, subjects_dir=None, subject=None):
         '''
@@ -239,6 +265,13 @@ class InaivuModel(HasTraits):
         self.invasive_signals[name] = signal
         self.current_invasive_signal = signal
 
+        stc = signal.mne_source_estimate
+
+        if stc.times[0] < self._time_low:
+            self._time_low = stc.times[0]
+        if stc.times[-1] > self._time_high:
+            self._time_high = stc.times[-1]
+
     def set_current_invasive_signal(self, name):
         self.current_invasive_signal = self.invasive_signals[name]
 
@@ -246,17 +279,24 @@ class InaivuModel(HasTraits):
         self.noninvasive_signals[name] = signal
         self.current_noninvasive_signal = signal
 
+        stc = signal.mne_source_estimate
+
+        if stc.times[0] < self._time_low:
+            self._time_low = stc.times[0]
+        if stc.times[-1] > self._time_high:
+            self._time_high = stc.times[-1]
+
     def set_current_noninvasive_signal(self, name):
         self.current_noninvasive_signal = self.noninvasive_signals[name]
 
-    def _display_invasive_signal_timepoint(self, idx, ifunc):
+    def _display_interpolated_invasive_signal_timepoint(self, idx, ifunc):
         scalars = ifunc(idx)
 
         self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
             np.array(scalars))
         self.ieeg_glyph.actor.mapper.scalar_visibility = True
 
-    def _display_noninvasive_signal_timepoint(self, idx, ifunc, 
+    def _display_interpolated_noninvasive_signal_timepoint(self, idx, ifunc, 
             interpolation='quadratic'):
         scalars = ifunc(idx)
 
@@ -281,19 +321,31 @@ class InaivuModel(HasTraits):
 
         #self.brain.set_data_time_index(idx, interpolation)
 
-    def set_timepoint(self, time, invasive=True, noninvasive=True):
+    @on_trait_change('time_slider')
+    def _show_closest_timepoint_listen(self):
+        self.set_closest_timepoint(self.time_slider)
+
+    def set_closest_timepoint(self, time, invasive=True, noninvasive=True):
         if noninvasive:
             self._set_noninvasive_timepoint(time)
         if invasive:
             self._set_invasive_timepoint(time)
 
-    def _set_invasive_timepoint(self, t):
+    def _set_invasive_timepoint(self, t, normalization='global'):
         if self.current_invasive_signal is None:
             return
         stc = self.current_invasive_signal.mne_source_estimate
 
         sample_time = np.argmin(np.abs(stc.times - t))
-        scalars = stc.data[:,sample_time]
+
+        if normalization=='global':
+            dmax = np.max(stc.data)
+            dmin = np.min(stc.data)
+            data = (stc.data-dmin) / (dmax-dmin)
+        else:
+            data = stc.data
+
+        scalars = data[:,sample_time]
 
         self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
             np.array(scalars))
@@ -320,12 +372,20 @@ class InaivuModel(HasTraits):
                 True)
             brain._geo_surf.actor.mapper.scalar_visibility=True
 
-    def _set_noninvasive_timepoint(self, t):
+    def _set_noninvasive_timepoint(self, t, normalization='global'):
         if self.current_noninvasive_signal is None:
             return
         stc = self.current_noninvasive_signal.mne_source_estimate
 
         sample_time = np.argmin(np.abs(stc.times - t))
+
+        if normalization=='global':
+            dmax = np.max(stc.data)
+            dmin = np.min(stc.data)
+            data = (stc.data-dmin) / (dmax-dmin)
+        else:
+            data = stc.data
+
         scalars = stc.data[:,sample_time]
 
         lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
@@ -432,12 +492,13 @@ class InaivuModel(HasTraits):
             #do the data display method
             if invasive:
                 iidx = i_times[i]
-                self._display_invasive_signal_timepoint(iidx, ifunc)
+                self._display_interpolated_invasive_signal_timepoint(
+                    iidx, ifunc)
         
             if noninvasive:
                 nidx = ni_times[i]
-                self._display_noninvasive_signal_timepoint(nidx, nfunc,
-                    interpolation=interpolation)
+                self._display_interpolated_noninvasive_signal_timepoint(
+                    nidx, nfunc, interpolation=interpolation)
 
             self.scene.render()
             mlab.draw(figure=self.scene.mayavi_scene)
@@ -539,10 +600,8 @@ class InaivuModel(HasTraits):
         if normalization=='none':
             pass
         elif normalization=='conservative':
-            dmax = np.max(self.current_invasive_signal.mne_source_estimate.
-                data)
-            dmin = np.min(self.current_invasive_signal.mne_source_estimate.
-                data)
+            dmax = np.max(stc.data)
+            dmin = np.min(stc.data)
             data = (data-dmin) / (dmax-dmin)
         elif normalization=='local': 
             dmax = np.max(data)
