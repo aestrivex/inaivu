@@ -45,6 +45,8 @@ class InaivuModel(HasTraits):
     smoothl_mat = Any #Either(np.ndarray, None)
     smoothr_mat = Any #Either(np.ndarray, None)
 
+    browser = Any #Instance(BrowseStc)
+
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
             show_label=False, height=500, width=500),
@@ -102,29 +104,49 @@ class InaivuModel(HasTraits):
         ptid = int(picker.point_id / self.ieeg_glyph.glyph.glyph_source.
             glyph_source.output.points.to_array().shape[0])
 
-        print ptid
+        from browse_stc import do_browse
+        if self.browser is None:
+            self.browser = do_browse( self.current_invasive_signal )
+
+        self.browser._plot_imitate_scroll(ptid)
         
-    def plot_ieeg(self, raw):
+    def plot_ieeg(self, raw=None, elec_locs=None, ch_names=None):
         '''
         given a raw .fif file with sEEG electrodes, (and potentially other
-        electrodes), extract and plot all of the sEEG electrodes in the file
+        electrodes), extract and plot all of the sEEG electrodes in the file.
+        
+        alternately accepts a list of electrode locations and channel names
 
         Returns
         -------
         ieeg_glyph | mlab.glyph
             Mayavi 3D glyph object
         '''
+        if raw is None and (elec_locs is None or ch_names is None):
+            raise ValueError("must specify raw .fif file or list of electrode "
+                "coordinates and channel names")
 
-        ra = mne.io.Raw(raw)
+        if raw is not None:
+            ra = mne.io.Raw(raw)
 
-        elecs = [(name, ra.info['chs'][i]['loc'][:3])
-            for i,name in enumerate(ra.ch_names) if
-            ra.info['chs'][i]['kind'] == mne.io.constants.FIFF.FIFFV_SEEG_CH]
+            elecs = [(name, ra.info['chs'][i]['loc'][:3])
+                for i,name in enumerate(ra.ch_names) if
+                ra.info['chs'][i]['kind'] == mne.io.constants.FIFF.FIFFV_SEEG_CH]
 
-        self.ch_names = [e[0] for e in elecs]
-        self.ieeg_loc = dict(elecs)
+            self.ch_names = [e[0] for e in elecs]
+            self.ieeg_loc = dict(elecs)
 
-        locs = np.array([e[1] for e in elecs])
+            locs = np.array([e[1] for e in elecs])
+
+        else:
+            locs = np.array(elec_locs)
+            
+            self.ch_names = ch_names
+
+            elecs = [(name, loc) for name, loc in zip(ch_names, locs)]
+
+            self.ieeg_loc = dict(elecs)
+
 
         source = mlab.pipeline.scalar_scatter(locs[:,0], locs[:,1], locs[:,2],
             figure=self.scene.mayavi_scene)
@@ -136,10 +158,16 @@ class InaivuModel(HasTraits):
         #self.ieeg_glyph = mlab.points3d( locs[:,0], locs[:,1], locs[:,2],
         #    color = (1,0,0), scale_factor=6, figure=figure)
 
+
         pick = self.scene.mayavi_scene.on_mouse_pick(self.invasive_callback)
         pick.tolerance = .1
 
         return self.ieeg_glyph
+
+    def interactivize_ieeg(self):
+        from browse_stc import do_browse
+        self.browser = do_browse( self.current_invasive_signal.
+            mne_source_estimate)
 
     def plot_ieeg_montage(self, montage):
         '''
@@ -410,7 +438,7 @@ class InaivuModel(HasTraits):
     def movie(self, movname, invasive=True, noninvasive=True,
               framerate=24, interpolation='quadratic', dilation=2,
               tmin=None, tmax=None, normalization='local', debug_labels=False,
-              smoothing_steps=20):
+              smoothing_steps=20, bitrate='750k'):
         #potentially worth providing different options for normalization and
         #interpolation for noninvasive and invasive data
 
@@ -507,7 +535,8 @@ class InaivuModel(HasTraits):
 
         #return images_written
         from surfer.utils import ffmpeg
-        ffmpeg(movname, fname_pattern, framerate=framerate,)
+        ffmpeg(movname, fname_pattern, framerate=framerate, bitrate=bitrate,
+            codec=None)
 
     def _force_render(self):
         from pyface.api import GUI

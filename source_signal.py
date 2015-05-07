@@ -33,9 +33,14 @@ def signal_from_stc(stc, ordering=None, invasive=False):
     return sig
 
 def load_montage(montage_file):
+    import os
     return mne.channels.read_montage(os.path.realpath(montage_file))
 
 def load_ordering_file(ordering_file):
+    #if already a list, just return it back
+    if type(ordering_file) == list:
+        return np.arange(len(ordering_file)), ordering_file
+
     ixes = []
     names = []
 
@@ -55,14 +60,13 @@ def save_ordering_file(fname, ordering):
             fd.write('%s\n'%name)
 
 def gen_stupid_gamma_signal(ch_names, hemi='rh'):
-
     ivs = InvasiveSignal()
     ivs.ch_names = ch_names
 
     if hemi=='rh':
         vertnos = [np.array(()), np.arange(len(ch_names))]
     else:
-        vertnos = [np.arange(len(ch_names)), np.array()]
+        vertnos = [np.arange(len(ch_names)), np.array(())]
 
     from scipy.stats import gamma
 
@@ -78,6 +82,33 @@ def gen_stupid_gamma_signal(ch_names, hemi='rh'):
 
         tsignal[i,:] = np.array([gamma.pdf(j,scale_param)*multi_param for
             j in np.linspace(min_param,max_param,100)])
+
+    stc = mne.SourceEstimate(tsignal, tmin=1, tstep=1, vertices=vertnos,
+        subject='woethiezluok')
+
+    ivs.mne_source_estimate = stc
+
+    return ivs
+
+def gen_stupid_sinusoidal_signal(ch_names, hemi='rh'):
+    ivs = InvasiveSignal()
+    ivs.ch_names = ch_names
+    
+    if hemi=='rh':
+        vertnos = [np.array(()), np.arange(len(ch_names))]
+    else:
+        vertnos = [np.arange(len(ch_names)), np.array()]
+
+    tsignal = np.zeros((len(ch_names), 100)) 
+    for i, ch_name in enumerate(ch_names):
+
+        amp = np.random.random()*.5 
+        freqp = np.random.random()*(5-.2)+.2
+        phasep = np.random.random()*2*np.pi
+        funcp = [np.sin, np.cos][int(np.random.randint(2))]
+
+        tsignal[i,:] = np.array([amp*funcp(2*np.pi*freqp*j+phasep)+.5 for j
+            in np.arange(100)])
 
     stc = mne.SourceEstimate(tsignal, tmin=1, tstep=1, vertices=vertnos,
         subject='woethiezluok')
