@@ -230,6 +230,14 @@ def _stc_from_bihemi_array(lh_data, rh_data, tr, filename):
 
     return stc
 
+def create_signal_from_fieldtrip_stclike(ft_file, source_field, 
+    time_field='Time'):
+    '''
+    Extract a signal that is essentially an STC signal
+    '''
+
+    pass
+
 # this function does not operate on well formulated fieldtrip files
 # consequently it does no processing that we should trust
 

@@ -637,6 +637,9 @@ class InaivuModel(HasTraits):
             dmin = np.min(data)
             data = (data-dmin) / (dmax-dmin)
 
+        #the interpolation is quadratic and therefore does a very bad job
+        #with extremely low frequency varying signals. which can happen when
+        #plotting something that looks like raw data.
         interp_func = interp1d( exact_times , data, interpolation, axis=1)
 
         return all_times, data, interp_func, nr_samples
