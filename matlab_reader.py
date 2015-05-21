@@ -26,39 +26,11 @@ def extract_double_dataset(file, dataset):
     return dataset.value 
 
 def extract_cell_dataset(file, dataset):
-    ndarray = dataset.value
-
     return map_ndarray(
         partial(extract_dataset, file),
         np.array(map(
                     partial(map_ndarray, lambda y:file[y]),
                     dataset.value)))
-
-#    return map_ndarray(
-#        lambda z:extract_dataset(file, z),
-#            np.array(
-#                map(
-#                    lambda x:map_ndarray(
-#                                          lambda y:file[y],
-#                                          x 
-#                                        ),
-#                    dataset.value)
-#            )
-#    )
-
-    dataset_array = np.array( 
-
-        map( partial(map_ndarray, lambda y:file[y]), ndarray) )
-
-        #map(lambda x:map_cell_recursive(file, x), ndarray) )
-
-#    #return map(lambda x:extract_dataset(file, x) )
-    print dataset_array
-
-    return map_ndarray( 
-        lambda z:extract_dataset(file, z), 
-        dataset_array
-    )
 
 #def map_cell_recursive(file, ndarray):
 #    if ndarray.ndim > 1:
