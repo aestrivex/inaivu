@@ -2,7 +2,7 @@ from __future__ import division
 import os
 import numpy as np
 from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
-    Range, on_trait_change, File, Button)
+    Range, on_trait_change, File, Button, Int)
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler, RangeEditor)
 from traitsui.message import error as error_dialog
@@ -42,8 +42,10 @@ class InaivuModel(HasTraits):
 
     opacity = Float(.35)
 
-    smoothl_mat = Any #Either(np.ndarray, None)
-    smoothr_mat = Any #Either(np.ndarray, None)
+    smoothing_steps = Int(0)
+
+    smoothl = Any #Either(np.ndarray, None)
+    smoothr = Any #Either(np.ndarray, None)
 
     browser = Any #Instance(BrowseStc)
 
@@ -377,7 +379,8 @@ class InaivuModel(HasTraits):
 
     def set_closest_timepoint(self, time, invasive=True, noninvasive=True):
         if noninvasive:
-            self._set_noninvasive_timepoint(time)
+            self._set_noninvasive_timepoint(time, 
+                smoothing_steps=self.smoothing_steps)
         if invasive:
             self._set_invasive_timepoint(time)
 
@@ -401,7 +404,7 @@ class InaivuModel(HasTraits):
             np.array(scalars))
         self.ieeg_glyph.actor.mapper.scalar_visibility = True
 
-    def _setup_noninvasive_viz(self):
+    def _setup_noninvasive_viz(self, smoothing_steps=20):
         lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
         rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
 
@@ -412,17 +415,23 @@ class InaivuModel(HasTraits):
 
         if 0 < len(rvt) < len(self.brain.geo['rh'].coords):
             radj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
-            self.smoothr = surfer.utils.smoothing_matrix(lvt, ladj,
+            self.smoothr = surfer.utils.smoothing_matrix(rvt, radj,
                 smoothing_steps)
 
-        for brain in self.brain.brains:
+        for i,brain in enumerate(self.brain.brains):
+
+            #skip if no vertices in hemisphere
+            if len(lvt)==i==0 or len(rvt)==0==i-1:
+                continue
+
             brain._geo_surf.module_manager.scalar_lut_manager.lut_mode = (
                 'RdBu')
             brain._geo_surf.module_manager.scalar_lut_manager.reverse_lut=(
                 True)
             brain._geo_surf.actor.mapper.scalar_visibility=True
 
-    def _set_noninvasive_timepoint(self, t, normalization='global'):
+    def _set_noninvasive_timepoint(self, t, normalization='global',
+            smoothing_steps=20):
         if self.current_noninvasive_signal is None:
             return
         stc = self.current_noninvasive_signal.mne_source_estimate
@@ -441,17 +450,19 @@ class InaivuModel(HasTraits):
         lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
         rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
 
-        self._setup_noninvasive_viz()
+        self._setup_noninvasive_viz(smoothing_steps=20)
     
         if len(lvt) > 0:
-            lh_scalar = scalars[lvt]
+            lh_scalar = stc.lh_data[:,sample_time]
+            #lh_scalar = scalars[lvt]
             lh_surf = self.brain.brains[0]._geo_surf
             if len(lvt) < len(self.brain.geo['lh'].coords):
                 lh_scalar = self.smoothl * lh_scalar
             lh_surf.mlab_source.scalars = lh_scalar
 
         if len(rvt) > 0:
-            rh_scalar = scalars[rvt]
+            rh_scalar = stc.rh_data[:,sample_time]
+            #rh_scalar = scalars[rvt]
             rh_surf = self.brain.brains[1]._geo_surf
             if len(rvt) < len(self.brain.geo['rh'].coords):
                 rh_scalar = self.smoothr * rh_scalar
@@ -486,7 +497,7 @@ class InaivuModel(HasTraits):
             lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
             rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
 
-            self._setup_noninvasive_viz()
+            self._setup_noninvasive_viz(smoothing_steps=20)
 
             if len(lvt) > 0:
                 lh_surf = self.brain.brains[0]._geo_surf
