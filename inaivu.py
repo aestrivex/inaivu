@@ -2,7 +2,7 @@ from __future__ import division
 import os
 import numpy as np
 from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
-    Range, on_trait_change)
+    Range, on_trait_change, File, Button)
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler, RangeEditor)
 from traitsui.message import error as error_dialog
@@ -47,6 +47,9 @@ class InaivuModel(HasTraits):
 
     browser = Any #Instance(BrowseStc)
 
+    current_script_file = File
+    run_script_button = Button('Run')
+
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
             show_label=False, height=500, width=500),
@@ -56,12 +59,20 @@ class InaivuModel(HasTraits):
                     high_name='_time_high', format='%.3f', is_float=True), 
                 label='time'),
         ),
+        HGroup(
+            Item('current_script_file'),
+            Item('run_script_button'),
+        ),
         #Item('time_slider', style='custom', show_label=False),
         Item('shell', editor=ShellEditor(), height=300, show_label=False),
         
         title='Das ist meine Wassermelone es ist MEINE',
         resizable=True,
     )
+
+    def _run_script_button_fired(self):
+        with open(self.current_script_file) as fd:
+            exec(fd)
 
     def build_surface(self, subjects_dir=None, subject=None):
         '''
@@ -110,19 +121,22 @@ class InaivuModel(HasTraits):
 
         self.browser._plot_imitate_scroll(ptid)
         
-    def plot_ieeg(self, raw=None, elec_locs=None, ch_names=None):
+    def plot_ieeg(self, raw=None, montage=None, elec_locs=None, 
+            ch_names=None):
         '''
         given a raw .fif file with sEEG electrodes, (and potentially other
         electrodes), extract and plot all of the sEEG electrodes in the file.
         
         alternately accepts a list of electrode locations and channel names
+        or a montage file
 
         Returns
         -------
         ieeg_glyph | mlab.glyph
             Mayavi 3D glyph object
         '''
-        if raw is None and (elec_locs is None or ch_names is None):
+        if raw is None and montage is None and (
+                elec_locs is None or ch_names is None):
             raise ValueError("must specify raw .fif file or list of electrode "
                 "coordinates and channel names")
 
@@ -137,6 +151,14 @@ class InaivuModel(HasTraits):
             self.ieeg_loc = dict(elecs)
 
             locs = np.array([e[1] for e in elecs])
+
+        elif montage is not None:
+            sfp = source_signal.load_montage(montage)
+            locs = np.array(sfp.pos)
+            self.ch_names = sfp.ch_names
+
+            elecs = [(name, loc) for name, loc in zip(self.ch_names, locs)]
+            self.ieeg_loc = dict(elecs)
 
         else:
             locs = np.array(elec_locs)

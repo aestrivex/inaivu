@@ -189,7 +189,7 @@ def build_bihemi_stc(lh_stc, rh_stc):
 
     return stc
 
-def _stc_from_array(data, tr, filename, hemi=None):
+def _stc_from_array(data, tr, filename, hemi=None, tmin=0):
     #TODO allow bihemi stc
     nvert, ntimes = data.shape
 
@@ -212,11 +212,11 @@ def _stc_from_array(data, tr, filename, hemi=None):
     else:
         vertices = [np.array(()), np.arange(nvert)]
 
-    stc = mne.SourceEstimate( data, vertices=vertices, tmin=0, tstep=tr )
+    stc = mne.SourceEstimate( data, vertices=vertices, tmin=tmin, tstep=tr )
 
     return stc
 
-def _stc_from_bihemi_array(lh_data, rh_data, tr, filename):
+def _stc_from_bihemi_array(lh_data, rh_data, tr, filename, tmin=0):
     lh_nvert, lh_ntimes = lh_data.shape
     rh_nvert, rh_ntimes = rh_data.shape
 
@@ -226,17 +226,49 @@ def _stc_from_bihemi_array(lh_data, rh_data, tr, filename):
     data = np.vstack((lh_data, rh_data))
     vertices = [np.arange(lh_nvert), np.arange(rh_nvert)]
 
-    stc = mne.SourceEstimate( data, vertices=vertices, tmin=0, tstep=tr )
+    stc = mne.SourceEstimate( data, vertices=vertices, tmin=tmin, tstep=tr )
 
     return stc
 
 def create_signal_from_fieldtrip_stclike(ft_file, source_field, 
-    time_field='Time'):
+    time_field='Time', ordering=None, name_field=None, invasive=False,
+    hemi=None, tmin=0):
     '''
     Extract a signal that is essentially an STC signal
     '''
+    ftd = io.loadmat(ft_file)
 
-    pass
+    if name_field is None and ordering is None:
+        raise ValueError("Need to specify either a field or file or list with "
+            "channel order") 
+
+    if invasive:
+        sig = InvasiveSignal()
+
+        if ordering is not None:
+            sig.ix_pos_map, sig.ch_names = load_ordering_file(ordering)
+
+        elif name_field is not None:
+            sig.ch_names = ftd[name_field]
+            sig.ix_pos_map = np.arange(len(sig.ch_names))
+
+    else:
+        sig = NoninvasiveSignal()
+
+        #maybe some stuff
+
+
+    tr = np.diff(np.squeeze(ftd[time_field]))[0]
+
+    from PyQt4.QtCore import pyqtRemoveInputHook
+    import pdb
+    pyqtRemoveInputHook()
+    #pdb.set_trace()
+    stc = _stc_from_array( ftd[source_field], tr, ft_file, hemi=hemi, 
+        tmin=tmin )
+    sig.mne_source_estimate = stc
+
+    return sig 
 
 # this function does not operate on well formulated fieldtrip files
 # consequently it does no processing that we should trust
