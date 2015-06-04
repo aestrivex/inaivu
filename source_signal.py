@@ -6,8 +6,20 @@ from scipy import io
 import mne
 import nibabel as nib
 
+def adj_sort(cur_ord, desired_ord):
+    if len(cur_ord) < len(desired_ord):
+        raise ValueError("Wrong number of electrodes")
+    keys={}
+    for i,k in enumerate(cur_ord):
+        keys[k]=i
+    reorder_map = map(keys.get, desired_ord)
+    if None in reorder_map:
+        raise ValueError("Failed to map all values, check input")
+    return reorder_map 
+
 class SourceSignal(HasTraits):
     mne_source_estimate = Any #Instance(mne._BaseSourceEstimate)
+    data = Any #Instance(np.ndarray), data formed to correct order
 
 class NoninvasiveSignal(SourceSignal):
     pass
@@ -53,6 +65,7 @@ def load_ordering_file(ordering_file):
             names.append(ln)
 
     return ixes, names
+read_ordering_file = load_ordering_file
     
 def save_ordering_file(fname, ordering):
     with open(ordering, 'w') as fd:
@@ -242,6 +255,7 @@ def create_signal_from_fieldtrip_stclike(ft_file, source_field,
         raise ValueError("Need to specify either a field or file or list with "
             "channel order") 
 
+
     if invasive:
         sig = InvasiveSignal()
 
@@ -251,6 +265,10 @@ def create_signal_from_fieldtrip_stclike(ft_file, source_field,
         elif name_field is not None:
             sig.ch_names = ftd[name_field]
             sig.ix_pos_map = np.arange(len(sig.ch_names))
+
+        if len(ftd[source_field]) != len(sig.ch_names):
+            print len(ftd[source_field]), len(sig.ch_names)
+            raise ValueError("Incorrect number of electrodes")
 
     else:
         sig = NoninvasiveSignal()
