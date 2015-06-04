@@ -6,7 +6,7 @@ from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler, RangeEditor, Action, CancelButton, Handler,
     NullEditor)
-from traitsui.message import error as error_dialog
+from error_dialog import error_dialog
 
 import mne
 from mayavi import mlab
@@ -221,7 +221,7 @@ class InaivuModel(Handler):
         '''
         if raw is None and montage is None and (
                 elec_locs is None or ch_names is None):
-            raise ValueError("must specify raw .fif file or list of electrode "
+            error_dialog("must specify raw .fif file or list of electrode "
                 "coordinates and channel names")
 
         if raw is not None:
@@ -395,7 +395,7 @@ class InaivuModel(Handler):
     
     def add_invasive_signal(self, name, signal):
         if len(self.ch_names) == 0:
-            raise ValueError("Cannot add invasive signal without first "
+            error_dialog("Cannot add invasive signal without first "
                 "specifying order of invasive electrodes")
 
         self.invasive_signals[name] = signal
@@ -612,13 +612,13 @@ class InaivuModel(Handler):
 
 
         if not invasive and not noninvasive:
-            raise ValueError("That movie is not interesting")
+            error_dialog("Movie has no noninvasive or invasive signals")
 
         if noninvasive:
             if self.current_noninvasive_signal is None:
-                raise ValueError("No signal provided")
+                error_dialog("No noninvasive signal found")
             if self.current_noninvasive_signal.mne_source_estimate is None:
-                raise ValueError("Signal has no source estimate")
+                error_dialog("Noninvasive signal has no source estimate")
 
             ni_times, _, nfunc, nr_samples = self._create_movie_samples(
                 self.current_noninvasive_signal, tmin=tmin, tmax=tmax,
@@ -653,9 +653,9 @@ class InaivuModel(Handler):
 
         if invasive:
             if self.current_invasive_signal is None:
-                raise ValueError("No signal provided")
+                error_dialog("No invasive signal found")
             if self.current_invasive_signal.mne_source_estimate is None:
-                raise ValueError("Signal has no source estimate")
+                error_dialog("Invasive signal has no source estimate")
 
             if not noninvasive:
                 nr_samples = -1
@@ -671,7 +671,7 @@ class InaivuModel(Handler):
 
         if noninvasive and invasive:
             if isteps != nsteps:
-                raise ValueError("Bad sampling")
+                error_dialog("Internal error: Bad sampling in movie")
              
 
         from tempfile import mkdtemp
@@ -739,10 +739,10 @@ class InaivuModel(Handler):
 
         # catch if the user asked for invasive timepoints that dont exist
         if tmin < stc.tmin:
-            raise ValueError("Time window too low for %s signal" %
+            error_dialog("Time window too low for %s signal" %
                 'invasive' if is_invasive else 'noninvasive')
         if tmax > stc.times[-1]:
-            raise ValueError("Time window too high for %s signal" %
+            error_dialog("Time window too high for %s signal" %
                 'invasive' if is_invasive else 'noninvasive')
 
         time_length = tmax-tmin
