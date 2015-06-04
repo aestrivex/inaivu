@@ -13,15 +13,15 @@ from scipy.signal import butter, filtfilt
 from mne.externals.six import string_types
 from mne.io.pick import pick_types
 from mne.io.proj import setup_proj
-from mne.viz.utils import (figure_nobar, _toggle_options, _mutable_defaults,
+from mne.viz.utils import (figure_nobar, _toggle_options, #_mutable_defaults,
                     _toggle_proj, tight_layout)
 
 from traits.api import HasTraits, Instance, Dict
-from traitsui.api import View, Item
+from traitsui.api import View, Item, Handler
 from matplotlib.figure import Figure
 from mpleditor import MPLFigureEditor
 
-class BrowseStc(HasTraits):
+class BrowseStc(Handler):
     figure = Instance(Figure) 
     params = Dict
 
@@ -31,6 +31,9 @@ class BrowseStc(HasTraits):
         resizable=True,
         title='Slovenian language differential geometry, 4th ed.'
     )
+
+    def closed(self, info, is_ok):
+        self.figure = None 
 
 
 #def _plot_update_raw_proj(params, bools):
@@ -69,8 +72,8 @@ class BrowseStc(HasTraits):
             data = filtfilt(self.params['ba'][0], self.params['ba'][1],
                                         data, axis=1, padlen=0)
         # scale
-        for di in range(data.shape[0]):
-            data[di] /= 1e-3 #self.params['scalings'][di]
+        # for di in range(data.shape[0]):
+        #     data[di] /= 1e-3 #self.params['scalings'][di]
             # stim channels should be hard limited
             #if self.params['types'][di] == 'stim':
             #    data[di] = np.minimum(data[di], 1.0)
@@ -79,6 +82,11 @@ class BrowseStc(HasTraits):
             data[np.logical_or(data > 1, data < -1)] = np.nan
         elif self.params['clipping'] == 'clamp':
             data = np.clip(data, -1, 1, data)
+        # Remove bad channels from data
+        bad_channels = [self.params['ch_names'].index(ch_name) for
+                        ch_name in self.params['bads']
+                        if ch_name in self.params['ch_names']]
+        data = np.delete(data, bad_channels, 0)
         self.params['data'] = data
         self.params['times'] = times
 
@@ -288,6 +296,7 @@ class BrowseStc(HasTraits):
 
         #info = self.params['info']
         n_channels = self.params['n_channels']
+        n_channels = 1
         self.params['bad_color'] = bad_color
         # do the plotting
         tick_list = []
@@ -313,7 +322,8 @@ class BrowseStc(HasTraits):
                     this_color = this_color[self.params['types'][inds[ch_ind]]]
 
                 # subtraction here gets corect orientation for flipped ylim
-                lines[ii].set_ydata(offset - this_data)
+                # lines[ii].set_ydata(offset - this_data)
+                lines[ii].set_ydata(this_data * (-1))
                 lines[ii].set_xdata(self.params['times'])
                 lines[ii].set_color(this_color)
                 lines[ii].set_zorder(this_z)
@@ -355,15 +365,19 @@ class BrowseStc(HasTraits):
         # finalize plot
         #print self.params['times']
 
+        # self.params['ax'].set_xlim(self.params['times'][0],
+        #                       self.params['times'][0] + self.params['duration'], False)
         self.params['ax'].set_xlim(self.params['times'][0],
-                              self.params['times'][0] + self.params['duration'], False)
+                              self.params['times'][0] + self.params['times'][-1], False)
+        self.params['ax'].set_ylim(np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1)))
         self.params['ax'].set_yticklabels(tick_list)
         self.params['vsel_patch'].set_y(self.params['ch_start'])
+        self.params['fig'].title = tick_list[0]
         self.params['fig'].canvas.draw()
 
 
     def plot_raw(self, signal, events=None, duration=10.0, start=0.0, 
-                 n_channels=20,
+                 n_channels=20, bads=(),
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
                  order='type',
@@ -375,8 +389,8 @@ class BrowseStc(HasTraits):
 
         stc = signal.mne_source_estimate
 
-        color, scalings = _mutable_defaults(('color', color),
-                                            ('scalings_plot_raw', scalings))
+        # color, scalings = _mutable_defaults(('color', color),
+        #                                     ('scalings_plot_raw', scalings))
 
         color = 'darkblue'
 
@@ -461,7 +475,7 @@ class BrowseStc(HasTraits):
                       event_nums=event_nums, clipping=clipping,
                       ch_names=signal.ch_names,
                       projector=None, sfreq=sfreq,
-                      bads=[],
+                      bads=bads,
                         )
 
         # set up plotting
@@ -484,7 +498,12 @@ class BrowseStc(HasTraits):
 
         # populate vertical and horizontal scrollbars
         #for ci in range(len(info['ch_names'])):
-        for ci in range(len(signal.ch_names)):
+        bads = set(bads)
+        bads.add('EVT') # Don't show the EVT channel
+        self.params['ch_names'] = list(set(signal.ch_names) - bads)
+        for ci, ch_name in enumerate(self.params['ch_names']):
+            if ch_name in bads:
+                continue
             #this_color = (bad_color if info['ch_names'][inds[ci]] in 
                 #info['bads']
             #              else color)
@@ -504,7 +523,7 @@ class BrowseStc(HasTraits):
         ax_hscroll.add_patch(hsel_patch)
         self.params['hsel_patch'] = hsel_patch
         ax_hscroll.set_xlim(0, n_times / sfreq)
-        n_ch = len(signal.ch_names)
+        n_ch = len(self.params['ch_names'])
         ax_vscroll.set_ylim(n_ch, 0)
         ax_vscroll.set_title('Ch.')
 
@@ -517,7 +536,7 @@ class BrowseStc(HasTraits):
         event_lines = [ax.plot([np.nan], color=event_color[ev_num])[0]
                        for ev_num in sorted(event_color.keys())]
         lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
-        ax.set_yticklabels(['X' * max([len(ch) for ch in signal.ch_names])])
+        ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,
                                         zorder=-1)[0]
@@ -585,9 +604,9 @@ class BrowseStc(HasTraits):
 
         return fig, callback_dict, self.params
 
-def do_browse(stc):
+def do_browse(stc, **kwargs):
     browser = BrowseStc()
-    browser.figure, cb_dict, params = browser.plot_raw(stc)
+    browser.figure, cb_dict, params = browser.plot_raw(stc, **kwargs)
 
     browser.edit_traits()
 
