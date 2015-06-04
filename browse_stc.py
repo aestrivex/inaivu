@@ -378,14 +378,21 @@ class BrowseStc(Handler):
             self.params['ax'].set_title(tick_list[0])
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
+        self.add_vline(self.params['const_event_time'])
         self.params['fig'].canvas.draw()
+
+    def add_vline(self, event_time):
+        x = np.array([event_time] * 2)
+        self.params['ax_vertline'].set_data(x, np.array(self.params['ax'].get_ylim()))
+        self.params['ax_hscroll_vertline'].set_data(x, np.array([0., 1.]))
+        self.params['vertline_t'].set_text('%0.3f' % x[0])
 
 
     def plot_raw(self, signal, events=None, duration=10.0, start=0.0, 
                  n_channels=20, bads=(),
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
-                 order='type',
+                 order='type', const_event_time=None,
                  show_options=False, title=None, show=False, block=False,
                  highpass=None, lowpass=None, filtorder=4, clipping=None):
 
@@ -480,14 +487,13 @@ class BrowseStc(Handler):
                       event_nums=event_nums, clipping=clipping,
                       ch_names=signal.ch_names,
                       projector=None, sfreq=sfreq,
-                      bads=bads,
+                      bads=bads,const_event_time=const_event_time,
                         )
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
         fig.canvas.set_window_title('mne_browse_raw')
         ax = plt.subplot2grid((10, 10), (0, 0), colspan=9, rowspan=9)
-        # ax2 = ax.twinx()
         #ax.set_title(title, fontsize=12)
         ax_hscroll = plt.subplot2grid((10, 10), (9, 0), colspan=9)
         ax_hscroll.get_yaxis().set_visible(False)
@@ -498,7 +504,6 @@ class BrowseStc(Handler):
         # store these so they can be fixed on resize
         self.params['fig'] = fig
         self.params['ax'] = ax
-        # self.params['ax2'] = ax2
         self.params['ax_hscroll'] = ax_hscroll
         self.params['ax_vscroll'] = ax_vscroll
         self.params['ax_button'] = ax_button
