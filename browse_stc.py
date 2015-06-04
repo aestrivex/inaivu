@@ -29,7 +29,8 @@ class BrowseStc(Handler):
         Item('figure', editor=MPLFigureEditor(), show_label=False,
             resizable=True),
         resizable=True,
-        title='Slovenian language differential geometry, 4th ed.'
+        # title='Slovenian language differential geometry, 4th ed.'
+        title = 'Source Browser'
     )
 
     def closed(self, info, is_ok):
@@ -83,10 +84,11 @@ class BrowseStc(Handler):
         elif self.params['clipping'] == 'clamp':
             data = np.clip(data, -1, 1, data)
         # Remove bad channels from data
-        bad_channels = [self.params['ch_names'].index(ch_name) for
-                        ch_name in self.params['bads']
-                        if ch_name in self.params['ch_names']]
-        data = np.delete(data, bad_channels, 0)
+        # First check if it wasn't deleted
+        if data.shape[0] > len(self.params['ch_names']):
+            data = np.delete(data, self.params['bad_indices'], 0)
+        assert(data.shape[0] == len(self.params['ch_names'])), \
+            'The data dimensions is not equal to the channels number'
         self.params['data'] = data
         self.params['times'] = times
 
@@ -296,7 +298,6 @@ class BrowseStc(Handler):
 
         #info = self.params['info']
         n_channels = self.params['n_channels']
-        n_channels = 1
         self.params['bad_color'] = bad_color
         # do the plotting
         tick_list = []
@@ -370,9 +371,13 @@ class BrowseStc(Handler):
         self.params['ax'].set_xlim(self.params['times'][0],
                               self.params['times'][0] + self.params['times'][-1], False)
         self.params['ax'].set_ylim(np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1)))
-        self.params['ax'].set_yticklabels(tick_list)
+
+        if len(tick_list) > 1:
+            self.params['ax'].set_yticklabels(tick_list)
+        else:
+            self.params['ax'].set_title(tick_list[0])
+
         self.params['vsel_patch'].set_y(self.params['ch_start'])
-        self.params['fig'].title = tick_list[0]
         self.params['fig'].canvas.draw()
 
 
@@ -482,6 +487,7 @@ class BrowseStc(Handler):
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
         fig.canvas.set_window_title('mne_browse_raw')
         ax = plt.subplot2grid((10, 10), (0, 0), colspan=9, rowspan=9)
+        # ax2 = ax.twinx()
         #ax.set_title(title, fontsize=12)
         ax_hscroll = plt.subplot2grid((10, 10), (9, 0), colspan=9)
         ax_hscroll.get_yaxis().set_visible(False)
@@ -492,17 +498,24 @@ class BrowseStc(Handler):
         # store these so they can be fixed on resize
         self.params['fig'] = fig
         self.params['ax'] = ax
+        # self.params['ax2'] = ax2
         self.params['ax_hscroll'] = ax_hscroll
         self.params['ax_vscroll'] = ax_vscroll
         self.params['ax_button'] = ax_button
 
         # populate vertical and horizontal scrollbars
         #for ci in range(len(info['ch_names'])):
-        bads = set(bads)
-        bads.add('EVT') # Don't show the EVT channel
-        self.params['ch_names'] = list(set(signal.ch_names) - bads)
+        self.params['bads'] = set(bads)
+        self.params['bads'].add('EVT') # Don't show the EVT channel
+        # Save the indices of the bad channels to delete them from the data afterwards
+        self.params['bad_indices'] = \
+            [self.params['ch_names'].index(ch_name) for
+             ch_name in self.params['bads']
+             if ch_name in signal.ch_names]
+        self.params['ch_names'] = list(set(signal.ch_names) -
+                                       self.params['bads'])
         for ci, ch_name in enumerate(self.params['ch_names']):
-            if ch_name in bads:
+            if ch_name in self.params['bads']:
                 continue
             #this_color = (bad_color if info['ch_names'][inds[ci]] in 
                 #info['bads']
@@ -529,14 +542,19 @@ class BrowseStc(Handler):
 
         # make shells for plotting traces
         offsets = np.arange(n_channels) * 2 + 1
-        ylim = [n_channels * 2 + 1, 0]
-        ax.set_yticks(offsets)
-        ax.set_ylim(ylim)
         # plot event_line first so it's in the back
         event_lines = [ax.plot([np.nan], color=event_color[ev_num])[0]
                        for ev_num in sorted(event_color.keys())]
-        lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
-        ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
+        ylim = [n_channels * 2 + 1, 0]
+
+        if self.params['n_channels'] > 1:
+            ax.set_yticks(offsets)
+            lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
+            ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
+            ax.set_ylim(ylim)
+        else:
+            lines = [ax.plot([np.nan])[0]]
+
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,
                                         zorder=-1)[0]
@@ -550,11 +568,9 @@ class BrowseStc(Handler):
                                                         zorder=1)[0]
 
         self.params['plot_fun'] = partial(self._plot_traces,  
-            inds=inds,
-                                     color=color, bad_color=bad_color, 
-            lines=lines,
-                                     event_lines=event_lines,
-                                     event_color=event_color, offsets=offsets)
+            inds=inds, color=color, bad_color=bad_color,
+            lines=lines, event_lines=event_lines,
+            event_color=event_color, offsets=offsets)
 
         # set up callbacks
         opt_button = mpl.widgets.Button(ax_button, 'Opt')
