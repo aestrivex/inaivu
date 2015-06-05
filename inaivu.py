@@ -226,10 +226,11 @@ class InaivuModel(Handler):
 
         from browse_stc import do_browse
         if self.browser is None:
-            # self.browser = do_browse( self.current_invasive_signal)
-            self.browser = do_browse( self.current_invasive_signal, bads=['LPT8'])
+            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1,
+                                     const_event_time=2.0)
         elif self.browser.figure is None:
-            self.browser = do_browse( self.current_invasive_signal, bads=['LPT8'])
+            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1,
+                                     const_event_time=2.0)
 
         self.browser._plot_imitate_scroll(ptid)
         
