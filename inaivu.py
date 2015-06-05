@@ -704,6 +704,7 @@ class InaivuModel(Handler):
                     "samples in invasive and noninvasive timecourses.\n"
                     "Invasive samples: %i\nNoninvasive samples: %i"%(
                     isteps,nsteps))
+             
 
         from tempfile import mkdtemp
         tempdir = mkdtemp()
@@ -770,11 +771,12 @@ class InaivuModel(Handler):
 
         # catch if the user asked for invasive timepoints that dont exist
         if tmin < stc.tmin:
-            error_dialog("Time window too low for %s signal" %
-                'invasive' if is_invasive else 'noninvasive')
+            error_dialog("Time window too low for %s signal" % (
+                'invasive' if is_invasive else 'noninvasive'))
         if tmax > stc.times[-1]:
-            error_dialog("Time window too high for %s signal" %
-                'invasive' if is_invasive else 'noninvasive')
+            error_dialog("Time window too high for %s signal" % (
+                'invasive' if is_invasive else 'noninvasive'))
+
 
         time_length = tmax-tmin
         sample_length = smax-smin+1
