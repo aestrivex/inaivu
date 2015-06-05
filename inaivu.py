@@ -5,7 +5,7 @@ from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
     Range, on_trait_change, File, Button, Int, Bool, Enum)
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler, RangeEditor, Action, CancelButton, Handler,
-    NullEditor)
+    NullEditor, Label)
 from error_dialog import error_dialog
 
 import mne
@@ -62,8 +62,14 @@ class InaivuModel(Handler):
     movie_filename = File
     movie_normalization_style = Enum('local', 'global', 'none')
 
+    movie_use_invasive = Bool(True)
+    movie_use_noninvasive = Bool(True)
     movie_tmin = Float(0.)
     movie_tmax = Float(1.)
+    movie_invasive_tmin = Float(0.)
+    movie_invasive_tmax = Float(1.)
+    movie_noninvasive_tmin = Float(0.)
+    movie_noninvasive_tmax = Float(1.)
 
     movie_framerate = Float(24)
     movie_dilation = Float(2)
@@ -71,6 +77,7 @@ class InaivuModel(Handler):
     movie_interpolation = Enum('quadratic', 'cubic', 'linear', 'slinear',
         'nearest', 'zero')
     movie_animation_degrees = Float(0.)
+    movie_sample_which_first = Enum('invasive', 'noninvasive')
 
     OKMakeMovieAction = Action(name='Make movie', action='do_movie')
 
@@ -100,21 +107,39 @@ class InaivuModel(Handler):
             exec(fd)
 
     make_movie_view = View(
-        Item('movie_filename', label='filename', style='readonly'),
+        Label('Click make movie to specify filename'),
+        #Item('movie_filename', label='filename', style='readonly'),
         HGroup(
             VGroup(
-                Item('movie_tmin', label='tmin'),
-                Item('movie_framerate', label='framerate'),
+                HGroup(
+                    Item('movie_use_invasive', 
+                        label='include invasive signal'),
+                ),
+                Item('movie_invasive_tmin', label='invasive tmin',
+                    enabled_when="movie_use_invasive"),
+                Item('movie_invasive_tmax', label='invasive tmin',
+                    enabled_when="movie_use_invasive"),
+                Item('movie_normalization_style', label='normalization'),
+                Item('movie_sample_which_first', label='samples first',
+                    enabled_when="movie_use_noninvasive and " 
+                        "movie_use_invasive"),
             ),
             VGroup(
-                Item('movie_tmax', label='tmax'),
-                Item('movie_bitrate', label='bitrate'),
+                HGroup(
+                    Item('movie_use_noninvasive', 
+                        label='include noninvasive signal'),
+                ),
+                Item('movie_noninvasive_tmin', label='noninvasive tmin',
+                    enabled_when="movie_use_noninvasive"),
+                Item('movie_noninvasive_tmax', label='noninvasive_tmax',
+                    enabled_when="movie_use_noninvasive"),
                 Item('movie_interpolation', label='interp'),
             ),
             VGroup(
+                Item('movie_bitrate', label='bitrate'),
+                Item('movie_framerate', label='framerate'),
                 Item('movie_dilation', label='temporal dilation'),
-                Item('movie_animation_degrees', label='degrees rotate'),
-                Item('movie_normalization_style', label='normalization'),
+                Item('movie_animation_degrees', label='degrees rotation'),
             ),
         ),
 
@@ -145,14 +170,17 @@ class InaivuModel(Handler):
         self.movie_filename = os.path.join(dialog.directory, dialog.filename)
         info.ui.dispose()
         self.movie( self.movie_filename, 
-            tmin=self.movie_tmin,
-            tmax=self.movie_tmax,
+            noninvasive_tmin=self.movie_noninvasive_tmin,
+            noninvasive_tmax=self.movie_noninvasive_tmax,
+            invasive_tmin=self.movie_invasive_tmin,
+            invasive_tmax=self.movie_invasive_tmax,
             normalization=self.movie_normalization_style,
             framerate=self.movie_framerate,
             dilation=self.movie_dilation,
             bitrate=self.movie_bitrate,
             interpolation=self.movie_interpolation,
             animation_degrees=self.movie_animation_degrees,
+            samples_first=self.movie_sample_which_first,
             )
 
     def build_surface(self, subjects_dir=None, subject=None):
@@ -198,9 +226,11 @@ class InaivuModel(Handler):
 
         from browse_stc import do_browse
         if self.browser is None:
-            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1)
+            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1,
+                                     const_event_time=2.0)
         elif self.browser.figure is None:
-            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1)
+            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1,
+                                     const_event_time=2.0)
 
         self.browser._plot_imitate_scroll(ptid)
         
@@ -604,8 +634,11 @@ class InaivuModel(Handler):
 
     def movie(self, movname, invasive=True, noninvasive=True,
               framerate=24, interpolation='quadratic', dilation=2,
-              tmin=None, tmax=None, normalization='local', debug_labels=False,
-              bitrate='750k', animation_degrees=0):
+              normalization='local', debug_labels=False,
+              bitrate='750k', animation_degrees=0,
+              invasive_tmin=None, invasive_tmax=None,
+              noninvasive_tmin=None, noninvasive_tmax=None,
+              samples_first='invasive'):
         #potentially worth providing different options for normalization and
         #interpolation for noninvasive and invasive data
 
@@ -613,54 +646,35 @@ class InaivuModel(Handler):
         if not invasive and not noninvasive:
             error_dialog("Movie has no noninvasive or invasive signals")
 
-        if noninvasive:
+        def noninvasive_sampling(nr_samples):
             if self.current_noninvasive_signal is None:
                 error_dialog("No noninvasive signal found")
             if self.current_noninvasive_signal.mne_source_estimate is None:
                 error_dialog("Noninvasive signal has no source estimate")
 
             ni_times, _, nfunc, nr_samples = self._create_movie_samples(
-                self.current_noninvasive_signal, tmin=tmin, tmax=tmax,
+                self.current_noninvasive_signal, tmin=noninvasive_tmin,   
+                tmax=noninvasive_tmax,
                 framerate=framerate, dilation=dilation,
                 interpolation=interpolation, normalization=normalization,
-                is_invasive=False)
+                is_invasive=False, nr_samples=nr_samples)
 
             nsteps = len(ni_times)
             steps = nsteps
 
-            lvt = self.current_noninvasive_signal.mne_source_estimate.lh_vertno
-            rvt = self.current_noninvasive_signal.mne_source_estimate.rh_vertno
-
             self._setup_noninvasive_viz()
 
-            if len(lvt) > 0:
-                lh_surf = self.brain.brains[0]._geo_surf
-            if len(rvt) > 0:
-                rh_surf = self.brain.brains[1]._geo_surf
+            return ni_times, nfunc, nr_samples, nsteps, steps
 
-#            time_label = 'diebhog thyme %d' if debug_labels else None
-#            if (np.size(self.current_noninvasive_signal.mne_source_estimate.
-#                lh_vertno) > 1):
-#                    self.brain.add_data( self.current_noninvasive_signal.
-#                        mne_source_estimate.lh_data, hemi='lh',
-#                        alpha=self.opacity, time_label=time_label )
-#            if (np.size(self.current_noninvasive_signal.mne_source_estimate.
-#                rh_vertno) > 1):
-#                    self.brain.add_data( self.current_noninvasive_signal.
-#                        mne_source_estimate.rh_data, hemi='rh', 
-#                        alpha=self.opacity, time_label=time_label ) 
-
-        if invasive:
+        def invasive_sampling(nr_samples):
             if self.current_invasive_signal is None:
                 error_dialog("No invasive signal found")
             if self.current_invasive_signal.mne_source_estimate is None:
                 error_dialog("Invasive signal has no source estimate")
 
-            if not noninvasive:
-                nr_samples = -1
-
-            i_times, _, ifunc, _ = self._create_movie_samples(
-                self.current_invasive_signal, tmin=tmin, tmax=tmax,
+            i_times, _, ifunc, nr_samples = self._create_movie_samples(
+                self.current_invasive_signal, tmin=invasive_tmin, 
+                tmax=invasive_tmax,
                 framerate=framerate, dilation=dilation,
                 interpolation=interpolation, normalization=normalization,
                 is_invasive=True, nr_samples=nr_samples)
@@ -668,9 +682,29 @@ class InaivuModel(Handler):
             isteps = len(i_times)
             steps = isteps
 
+            return i_times, ifunc, nr_samples, isteps, steps
+
+        #ensure that the samples are collected in the right order
+        nr_samples = -1
+
+        if invasive and samples_first=='invasive':
+            i_times, ifunc, nr_samples, isteps, steps = (
+                invasive_sampling(nr_samples))
+
+        if noninvasive:
+            ni_times, nfunc, nr_samples, nsteps, steps = (
+                noninvasive_sampling(nr_samples))
+
+        if invasive and samples_first!='invasive':
+            i_times, ifunc, nr_samples, isteps, steps = (
+                invasive_sampling(nr_samples))
+
         if noninvasive and invasive:
             if isteps != nsteps:
-                error_dialog("Internal error: Bad sampling in movie")
+                error_dialog("Movie parameters do not yield equal number of "
+                    "samples in invasive and noninvasive timecourses.\n"
+                    "Invasive samples: %i\nNoninvasive samples: %i"%(
+                    isteps,nsteps))
              
 
         from tempfile import mkdtemp
@@ -738,11 +772,12 @@ class InaivuModel(Handler):
 
         # catch if the user asked for invasive timepoints that dont exist
         if tmin < stc.tmin:
-            error_dialog("Time window too low for %s signal" %
-                'invasive' if is_invasive else 'noninvasive')
+            error_dialog("Time window too low for %s signal" % (
+                'invasive' if is_invasive else 'noninvasive'))
         if tmax > stc.times[-1]:
-            error_dialog("Time window too high for %s signal" %
-                'invasive' if is_invasive else 'noninvasive')
+            error_dialog("Time window too high for %s signal" % (
+                'invasive' if is_invasive else 'noninvasive'))
+
 
         time_length = tmax-tmin
         sample_length = smax-smin+1

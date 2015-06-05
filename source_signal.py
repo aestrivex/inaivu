@@ -246,7 +246,7 @@ def _stc_from_bihemi_array(lh_data, rh_data, tr, filename, tmin=0):
 
 def create_signal_from_fieldtrip_stclike(ft_file, source_field, 
     time_field='Time', ordering=None, name_field=None, invasive=False,
-    hemi=None, tmin=0):
+    hemi=None, tmin=0, tr=.001):
     '''
     Extract a signal that is essentially an STC signal
     '''

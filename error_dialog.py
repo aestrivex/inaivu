@@ -1,6 +1,7 @@
 from traitsui.message import error
 
-def InaivuError(ValueError): pass
+class InaivuError(ValueError): 
+    pass
 
 def error_dialog(message):
     error(message)
