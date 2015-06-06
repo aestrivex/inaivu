@@ -16,7 +16,7 @@ from mne.io.proj import setup_proj
 from mne.viz.utils import (figure_nobar, _toggle_options, #_mutable_defaults,
                     _toggle_proj, tight_layout)
 
-from traits.api import HasTraits, Instance, Dict
+from traits.api import HasTraits, Instance, Dict, Int, Float
 from traitsui.api import View, Item, Handler
 from matplotlib.figure import Figure
 from mpleditor import MPLFigureEditor
@@ -24,6 +24,9 @@ from mpleditor import MPLFigureEditor
 class BrowseStc(Handler):
     figure = Instance(Figure) 
     params = Dict
+
+    current_channel = Int(-1)
+    current_channel_color = Float #this is a scalar not a 4-tuple
 
     traits_view = View(
         Item('figure', editor=MPLFigureEditor(), show_label=False,
@@ -36,6 +39,10 @@ class BrowseStc(Handler):
     def closed(self, info, is_ok):
         self.figure = None 
 
+        #restore previous colors
+        import color_utils 
+        color_utils.change_single_glyph_color(self.params['glyph'],
+            self.current_channel, self.current_channel_color)
 
 #def _plot_update_raw_proj(params, bools):
 #    """Helper only needs to be called when proj is changed"""
@@ -61,10 +68,8 @@ class BrowseStc(Handler):
 
         #print start, stop, self.params['t_start'], self.params['duration']
 
-        data, times = (self.params['stc'].data[:, start:stop].copy(), 
-            self.params['stc'].times[start:stop])
-
-
+        data = self.params['signal'].data[:, start:stop].copy()
+        times = self.params['stc'].times[start:stop]
 
         # remove DC
         if self.params['remove_dc'] is True:
@@ -87,6 +92,10 @@ class BrowseStc(Handler):
         # First check if it wasn't deleted
         if data.shape[0] > len(self.params['ch_names']):
             data = np.delete(data, self.params['bad_indices'], 0)
+
+        #import pdb
+        #pdb.set_trace()
+
         assert(data.shape[0] == len(self.params['ch_names'])), \
             'The data dimensions is not equal to the channels number'
         self.params['data'] = data
@@ -263,6 +272,7 @@ class BrowseStc(Handler):
             self.params['ch_start'] -= rem if rem != 0 else self.params['n_channels']
         self.params['plot_fun']()
 
+
     def _plot_imitate_scroll(self, start_ch):
         self.params = self.params
 
@@ -381,6 +391,25 @@ class BrowseStc(Handler):
         self.add_vline(self.params['const_event_time'])
         self.params['fig'].canvas.draw()
 
+        #do stuff to the underlying glyph
+        if self.params['glyph'] is not None:
+            import color_utils 
+            #restored any previously saved colors
+            color_utils.change_single_glyph_color(self.params['glyph'],
+                self.current_channel, self.current_channel_color)
+
+            #set color for new channel
+            self.current_channel = self.params['ch_start']
+            self.current_channel_color = (
+                color_utils.get_single_glyph_color( self.params['glyph'],
+                    self.params['ch_start']))
+
+            color_utils.extend_lut_with_static_color(self.params['glyph'], 
+                (1, 1, .4))
+            color_utils.change_single_glyph_color(self.params['glyph'],
+                self.params['ch_start'], 2 )
+
+
     def add_vline(self, event_time):
         x = np.array([event_time] * 2)
         self.params['ax_vertline'].set_data(x, np.array(self.params['ax'].get_ylim()))
@@ -394,7 +423,8 @@ class BrowseStc(Handler):
                  event_color='cyan', scalings=None, remove_dc=True, 
                  order='type', const_event_time=None,
                  show_options=False, title=None, show=False, block=False,
-                 highpass=None, lowpass=None, filtorder=4, clipping=None):
+                 highpass=None, lowpass=None, filtorder=4, clipping=None,
+                 glyph=None):
 
         import matplotlib.pyplot as plt
         import matplotlib as mpl
@@ -480,6 +510,8 @@ class BrowseStc(Handler):
 
         # set up projection and data parameters
         self.params = dict(stc=stc, ch_start=0, t_start=start, 
+                      signal=signal,
+                      glyph=glyph,
                       duration=duration,
                       remove_dc=remove_dc, ba=ba,
                       n_channels=n_channels, scalings=scalings,

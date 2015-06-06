@@ -225,12 +225,15 @@ class InaivuModel(Handler):
             glyph_source.output.points.to_array().shape[0])
 
         from browse_stc import do_browse
-        if self.browser is None:
-            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1,
-                                     const_event_time=2.0)
-        elif self.browser.figure is None:
-            self.browser = do_browse(self.current_invasive_signal, bads=['LPT8'], n_channels=1,
-                                     const_event_time=2.0)
+        if self.browser is None or self.browser.figure is None:
+            self.browser = do_browse(self.current_invasive_signal, 
+                bads=['LPT8'], n_channels=1,
+                                     const_event_time=2.0,
+                glyph = self.ieeg_glyph)
+#        elif self.browser.figure is None:
+#            self.browser = do_browse(self.current_invasive_signal, 
+#                bads=['LPT8'], n_channels=1,
+#                                     const_event_time=2.0)
 
         self.browser._plot_imitate_scroll(ptid)
         
@@ -292,6 +295,9 @@ class InaivuModel(Handler):
         #self.ieeg_glyph = mlab.points3d( locs[:,0], locs[:,1], locs[:,2],
         #    color = (1,0,0), scale_factor=6, figure=figure)
 
+        self.ieeg_glyph.mlab_source.dataset.point_data.scalars = np.zeros(
+            (len(locs),))
+        self._force_render()
 
         pick = self.scene.mayavi_scene.on_mouse_pick(self.invasive_callback)
         pick.tolerance = .1
