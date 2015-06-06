@@ -324,7 +324,10 @@ class BrowseStc(Handler):
                 offset = offsets[ii]
 
                 # do NOT operate in-place lest this get screwed up
-                this_data = self.params['data'][inds[ch_ind]]
+                if inds[ch_ind] < self.params['data'].shape[0]:
+                    this_data = self.params['data'][inds[ch_ind]]
+                else:
+                    this_data = np.zeros((1, self.params['data'].shape[1]))
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
                 #this_z = -1 if ch_name in info['bads'] else 0
