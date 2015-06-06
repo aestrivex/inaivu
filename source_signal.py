@@ -5,9 +5,22 @@ import numpy as np
 from scipy import io
 import mne
 import nibabel as nib
+from error_dialog import error_dialog
+
+def adj_sort(cur_ord, desired_ord):
+    if len(cur_ord) < len(desired_ord):
+        error_dialog("Wrong number of electrodes")
+    keys={}
+    for i,k in enumerate(cur_ord):
+        keys[k]=i
+    reorder_map = map(keys.get, desired_ord)
+    if None in reorder_map:
+        error_dialog("Failed to map all values, check input")
+    return reorder_map 
 
 class SourceSignal(HasTraits):
     mne_source_estimate = Any #Instance(mne._BaseSourceEstimate)
+    data = Any #Instance(np.ndarray), data formed to correct order
 
 class NoninvasiveSignal(SourceSignal):
     pass
@@ -53,6 +66,7 @@ def load_ordering_file(ordering_file):
             names.append(ln)
 
     return ixes, names
+read_ordering_file = load_ordering_file
     
 def save_ordering_file(fname, ordering):
     with open(ordering, 'w') as fd:
@@ -182,7 +196,7 @@ def build_bihemi_stc(lh_stc, rh_stc):
     rh_tstep = rh_stc.tstep
 
     if lh_tmin != rh_tmin or lh_tstep != rh_tstep:
-        raise ValueError("Timing must be consistent in left and right stc")
+        error_dialog("Timing must be consistent in left and right stc")
 
     stc = mne.SourceEstimate( np.vstack((lh_data, rh_data)),
         vertices=[lh_verts, rh_verts], tmin=lh_tmin, tstep=lh_tstep)
@@ -204,7 +218,7 @@ def _stc_from_array(data, tr, filename, hemi=None, tmin=0):
             hemi = 'rh'
 
     if hemi not in ('lh','rh'):
-        raise ValueError('Correct hemisphere not provided and could not figure it'
+        error_dialog('Correct hemisphere not provided and could not figure it'
             ' out')
 
     if hemi=='lh':
@@ -221,7 +235,7 @@ def _stc_from_bihemi_array(lh_data, rh_data, tr, filename, tmin=0):
     rh_nvert, rh_ntimes = rh_data.shape
 
     if lh_ntimes != rh_ntimes:
-        raise ValueError("Inconsistent timing across hemispheres")
+        error_dialog("Inconsistent timing across hemispheres")
 
     data = np.vstack((lh_data, rh_data))
     vertices = [np.arange(lh_nvert), np.arange(rh_nvert)]
@@ -232,15 +246,16 @@ def _stc_from_bihemi_array(lh_data, rh_data, tr, filename, tmin=0):
 
 def create_signal_from_fieldtrip_stclike(ft_file, source_field, 
     time_field='Time', ordering=None, name_field=None, invasive=False,
-    hemi=None, tmin=0):
+    hemi=None, tmin=0, tr=.001):
     '''
     Extract a signal that is essentially an STC signal
     '''
     ftd = io.loadmat(ft_file)
 
     if name_field is None and ordering is None:
-        raise ValueError("Need to specify either a field or file or list with "
+        error_dialog("Need to specify either a field or file or list with "
             "channel order") 
+
 
     if invasive:
         sig = InvasiveSignal()
@@ -251,6 +266,10 @@ def create_signal_from_fieldtrip_stclike(ft_file, source_field,
         elif name_field is not None:
             sig.ch_names = ftd[name_field]
             sig.ix_pos_map = np.arange(len(sig.ch_names))
+
+        if len(ftd[source_field]) != len(sig.ch_names):
+            print len(ftd[source_field]), len(sig.ch_names)
+            error_dialog("Incorrect number of electrodes")
 
     else:
         sig = NoninvasiveSignal()
