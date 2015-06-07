@@ -225,10 +225,12 @@ class InaivuModel(Handler):
             glyph_source.output.points.to_array().shape[0])
 
         from browse_stc import do_browse
+        # todo: change this to the real roi surface signal
+        surface_signal_rois = np.random.randn(*self.current_invasive_signal.mne_source_estimate.data.shape)
         if self.browser is None or self.browser.figure is None:
             self.browser = do_browse(self.current_invasive_signal, 
-                bads=['LPT8'], n_channels=1,
-                                     const_event_time=2.0,
+                bads=['LPT8'], n_channels=1, const_event_time=2.0,
+                surface_signal_rois=surface_signal_rois,
                 glyph = self.ieeg_glyph)
 #        elif self.browser.figure is None:
 #            self.browser = do_browse(self.current_invasive_signal, 

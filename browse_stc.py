@@ -69,6 +69,10 @@ class BrowseStc(Handler):
         #print start, stop, self.params['t_start'], self.params['duration']
 
         data = self.params['signal'].data[:, start:stop].copy()
+        if self.params['surface_signal_rois'] is not None:
+            data2 = self.params['surface_signal_rois'][:, start:stop].copy()
+        else:
+            data2 = None
         times = self.params['stc'].times[start:stop]
 
         # remove DC
@@ -99,6 +103,7 @@ class BrowseStc(Handler):
         assert(data.shape[0] == len(self.params['ch_names_no_bads'])), \
             'The data dimensions is not equal to the channels number'
         self.params['data'] = data
+        self.params['data2'] = data2
         self.params['times'] = times
 
 
@@ -135,6 +140,8 @@ class BrowseStc(Handler):
         #print s
 
         self.params['ax'].set_position([l_border, ax_y, ax_width, ax_height])
+        if self.params['ax2'] is not None:
+            self.params['ax2'].set_position([l_border, ax_y, ax_width, ax_height])
         # vscroll (channels)
         pos = [ax_width + l_border + vscroll_dist, ax_y,
                scroll_width_x, ax_height]
@@ -302,8 +309,8 @@ class BrowseStc(Handler):
             self._channels_changed()
 
 
-    def _plot_traces(self, inds, color, bad_color, lines, event_lines,
-                     event_color, offsets):
+    def _plot_traces(self, inds, color, bad_color, lines, lines2,
+                     event_lines, event_color, offsets):
         """Helper for plotting raw"""
 
         #info = self.params['info']
@@ -328,6 +335,10 @@ class BrowseStc(Handler):
                     this_data = self.params['data'][inds[ch_ind]]
                 else:
                     this_data = np.zeros((1, self.params['data'].shape[1]))
+                if self.params['data2'] is not None:
+                    this_data_2 = self.params['data2'][inds[ch_ind]]
+                else:
+                    this_data_2 = None
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
                 #this_z = -1 if ch_name in info['bads'] else 0
@@ -341,6 +352,11 @@ class BrowseStc(Handler):
                 lines[ii].set_xdata(self.params['times'])
                 lines[ii].set_color(this_color)
                 lines[ii].set_zorder(this_z)
+                if this_data_2 is not None:
+                    lines2[ii].set_xdata(self.params['times'])
+                    lines2[ii].set_ydata(this_data_2 * (-1))
+                    lines2[ii].set_color(this_color)
+                    lines2[ii].set_zorder(this_z)
                 vars(lines[ii])['ch_name'] = ch_name
                 vars(lines[ii])['def_color'] = color 
                     #color[self.params['types'][inds[ch_ind]]]
@@ -348,6 +364,8 @@ class BrowseStc(Handler):
                 # "remove" lines
                 lines[ii].set_xdata([])
                 lines[ii].set_ydata([])
+                lines2[ii].set_xdata([])
+                lines2[ii].set_ydata([])
         # deal with event lines
         if self.params['event_times'] is not None:
             # find events in the time window
@@ -385,6 +403,11 @@ class BrowseStc(Handler):
                               self.params['times'][0] + self.params['times'][-1], False)
         self.params['ax'].set_ylim(np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1)))
 
+        if self.params['ax2'] is not None:
+            self.params['ax2'].set_xlim(self.params['times'][0],
+                self.params['times'][0] + self.params['times'][-1], False)
+            self.params['ax2'].set_ylim(np.min(self.params['data2']*(-1)), np.max(self.params['data2']*(-1)))
+
         if len(tick_list) > 1:
             self.params['ax'].set_yticklabels(tick_list)
         else:
@@ -421,7 +444,7 @@ class BrowseStc(Handler):
 
 
     def plot_raw(self, signal, events=None, duration=10.0, start=0.0, 
-                 n_channels=20, bads=(),
+                 n_channels=20, bads=(), surface_signal_rois=None,
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
                  order='type', const_event_time=None,
@@ -523,7 +546,7 @@ class BrowseStc(Handler):
                       ch_names=signal.ch_names,
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
-                        )
+                      surface_signal_rois=surface_signal_rois)
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
@@ -539,6 +562,10 @@ class BrowseStc(Handler):
         # store these so they can be fixed on resize
         self.params['fig'] = fig
         self.params['ax'] = ax
+        if self.params['surface_signal_rois'] is not None:
+            self.params['ax2'] = ax2 = ax.twinx()
+        else:
+            self.params['ax2'] = ax2 = None
         self.params['ax_hscroll'] = ax_hscroll
         self.params['ax_vscroll'] = ax_vscroll
         self.params['ax_button'] = ax_button
@@ -596,8 +623,13 @@ class BrowseStc(Handler):
             lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
             ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
             ax.set_ylim(ylim)
+            if ax2 is not None:
+                lines2 = [ax2.plot([np.nan])[0] for _ in range(n_ch)]
+            else:
+                lines2 = [ax2.plot([np.nan])[0]]
         else:
             lines = [ax.plot([np.nan])[0]]
+            lines2 = [ax2.plot([np.nan])[0]]
 
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,
@@ -613,7 +645,7 @@ class BrowseStc(Handler):
 
         self.params['plot_fun'] = partial(self._plot_traces,  
             inds=inds, color=color, bad_color=bad_color,
-            lines=lines, event_lines=event_lines,
+            lines=lines, lines2=lines2, event_lines=event_lines,
             event_color=event_color, offsets=offsets)
 
         # set up callbacks
