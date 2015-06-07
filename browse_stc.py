@@ -90,13 +90,13 @@ class BrowseStc(Handler):
             data = np.clip(data, -1, 1, data)
         # Remove bad channels from data
         # First check if it wasn't deleted
-        if data.shape[0] > len(self.params['ch_names']):
+        if data.shape[0] > len(self.params['ch_names_no_bads']):
             data = np.delete(data, self.params['bad_indices'], 0)
 
         #import pdb
         #pdb.set_trace()
 
-        assert(data.shape[0] == len(self.params['ch_names'])), \
+        assert(data.shape[0] == len(self.params['ch_names_no_bads'])), \
             'The data dimensions is not equal to the channels number'
         self.params['data'] = data
         self.params['times'] = times
@@ -326,7 +326,10 @@ class BrowseStc(Handler):
                 offset = offsets[ii]
 
                 # do NOT operate in-place lest this get screwed up
-                this_data = self.params['data'][inds[ch_ind]]
+                if inds[ch_ind] < self.params['data'].shape[0]:
+                    this_data = self.params['data'][inds[ch_ind]]
+                else:
+                    this_data = np.zeros((1, self.params['data'].shape[1]))
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
                 #this_z = -1 if ch_name in info['bads'] else 0
@@ -551,8 +554,12 @@ class BrowseStc(Handler):
             [self.params['ch_names'].index(ch_name) for
              ch_name in self.params['bads']
              if ch_name in signal.ch_names]
-        self.params['ch_names'] = list(set(signal.ch_names) -
-                                       self.params['bads'])
+        self.params['ch_names_no_bads'] = [ch_name for
+            ch_name in self.params['ch_names'] if
+            ch_name not in self.params['bads']]
+        # for bad_channel in self.params['bads']:
+        #     if bad_channel in self.params['ch_names']:
+        #         self.params['ch_names'].remove(bad_channel)
         for ci, ch_name in enumerate(self.params['ch_names']):
             if ch_name in self.params['bads']:
                 continue
