@@ -281,9 +281,11 @@ class BrowseStc(Handler):
         self.params['ch_start'] = min( start_ch,
                                   len(self.params['ch_names']) - 
                                   self.params['n_channels'] )
+
+        print self.params['ch_start'], 'greeib', start_ch
       
         if orig_start != self.params['ch_start']:
-            #print self.params
+            #p3int self.params
 
             self._channels_changed()
 
@@ -517,7 +519,7 @@ class BrowseStc(Handler):
                       n_channels=n_channels, scalings=scalings,
                       n_times=n_times, event_times=event_times,
                       event_nums=event_nums, clipping=clipping,
-                      ch_names=signal.ch_names,
+                      ch_names=copy.copy(signal.ch_names),
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
                         )

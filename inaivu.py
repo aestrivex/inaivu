@@ -83,7 +83,7 @@ class InaivuModel(Handler):
 
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
-            show_label=False, height=500, width=500),
+            show_label=False, height=300, width=300),
         VGroup(
             Item('time_slider', 
                 editor=RangeEditor(mode='xslider', low_name='_time_low',
@@ -235,7 +235,12 @@ class InaivuModel(Handler):
 #                bads=['LPT8'], n_channels=1,
 #                                     const_event_time=2.0)
 
-        self.browser._plot_imitate_scroll(ptid)
+        pt_loc = tuple(self.ieeg_glyph.mlab_source.points[ptid])
+        pt_name = self.ieeg_loc[pt_loc]
+        pt_index = self.ch_names.index(pt_name)
+        print ptid, pt_loc, pt_name, pt_index
+
+        self.browser._plot_imitate_scroll(pt_index)
         
     def plot_ieeg(self, raw=None, montage=None, elec_locs=None, 
             ch_names=None):
@@ -259,27 +264,28 @@ class InaivuModel(Handler):
         if raw is not None:
             ra = mne.io.Raw(raw)
 
-            elecs = [(name, ra.info['chs'][i]['loc'][:3])
+            #elecs = [(name, ra.info['chs'][i]['loc'][:3])
+            elecs = [(tuple(ra.info['chs'][i]['loc'][:3]), name)
                 for i,name in enumerate(ra.ch_names) if
                 ra.info['chs'][i]['kind'] == mne.io.constants.FIFF.FIFFV_SEEG_CH]
 
-            self.ch_names = [e[0] for e in elecs]
+            self.ch_names = [e[1] for e in elecs]
 
-            locs = np.array([e[1] for e in elecs])
+            locs = np.array([e[0] for e in elecs])
 
         elif montage is not None:
             sfp = source_signal.load_montage(montage)
             locs = np.array(sfp.pos)
             self.ch_names = sfp.ch_names
 
-            elecs = [(name, loc) for name, loc in zip(self.ch_names, locs)]
+            elecs = [(tuple(loc), name) for name, loc in zip(self.ch_names, locs)]
 
         else:
             locs = np.array(elec_locs)
             
             self.ch_names = ch_names
 
-            elecs = [(name, loc) for name, loc in zip(ch_names, locs)]
+            elecs = [(tuple(loc), name) for name, loc in zip(ch_names, locs)]
 
         # compare signal.ch_names to the ch_names here
 
@@ -552,6 +558,10 @@ class InaivuModel(Handler):
         #import pdb
         #pyqtRemoveInputHook()
         #pdb.set_trace()
+
+        #unset any changes to the LUT
+        self.ieeg_glyph.module_manager.scalar_lut_manager.lut_mode = 'black-white'
+        self.ieeg_glyph.module_manager.scalar_lut_manager.lut_mode = 'BuGn'
 
         self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
             np.array(scalars))
