@@ -128,8 +128,8 @@ class BrowseStc(Handler):
         s = self.params['fig'].get_size_inches()
         scroll_width = 0.33
         hscroll_dist = 0.33
-        vscroll_dist = 0.1
-        l_border = 1.2
+        vscroll_dist = 0.4
+        l_border = 0.6
         r_border = 0.1
         t_border = 0.33
         b_border = 0.5
