@@ -240,7 +240,7 @@ class InaivuModel(Handler):
         pt_loc = tuple(self.ieeg_glyph.mlab_source.points[ptid])
         pt_name = self.ieeg_loc[pt_loc]
         pt_index = self.ch_names.index(pt_name)
-        print ptid, pt_loc, pt_name, pt_index
+        #print ptid, pt_loc, pt_name, pt_index
 
         self.browser._plot_imitate_scroll(pt_index)
         
