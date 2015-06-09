@@ -112,7 +112,7 @@ class BrowseStc(Handler):
         s = self.params['fig'].get_size_inches()
         scroll_width = 0.33
         hscroll_dist = 0.33
-        vscroll_dist = 0.1
+        vscroll_dist = 0.3# 0.1
         l_border = 1.2
         r_border = 0.1
         t_border = 0.33
@@ -413,7 +413,13 @@ class BrowseStc(Handler):
         if len(tick_list) > 1:
             self.params['ax'].set_yticklabels(tick_list)
         else:
-            self.params['ax'].set_title(tick_list[0])
+            if self.params['rois_labels'] is not None:
+                self.params['ax'].set_title('%s - %s' %(tick_list[0],
+                    self.params['rois_labels'][inds[ch_ind]]))
+            else:
+                self.params['ax'].set_title(tick_list[0])
+
+
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
         self.add_vline(self.params['const_event_time'])
@@ -449,7 +455,7 @@ class BrowseStc(Handler):
                  n_channels=20, bads=(), surface_signal_rois=None,
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
-                 order='type', const_event_time=None,
+                 order='type', const_event_time=None, rois_labels=None,
                  show_options=False, title=None, show=False, block=False,
                  highpass=None, lowpass=None, filtorder=4, clipping=None,
                  glyph=None):
@@ -548,7 +554,8 @@ class BrowseStc(Handler):
                       ch_names=copy.copy(signal.ch_names),
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
-                      surface_signal_rois=surface_signal_rois)
+                      surface_signal_rois=surface_signal_rois,
+                      rois_labels=rois_labels)
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)

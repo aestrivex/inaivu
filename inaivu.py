@@ -224,23 +224,30 @@ class InaivuModel(Handler):
         ptid = int(picker.point_id / self.ieeg_glyph.glyph.glyph_source.
             glyph_source.output.points.to_array().shape[0])
 
+        pt_loc = tuple(self.ieeg_glyph.mlab_source.points[ptid])
+        pt_name = self.ieeg_loc[pt_loc]
+        pt_index = self.ch_names.index(pt_name)
+        print ptid, pt_loc, pt_name, pt_index
+
         from browse_stc import do_browse
         # todo: change this to the real roi surface signal
         surface_signal_rois = np.random.randn(*self.current_invasive_signal.mne_source_estimate.data.shape)
+        import random
+        import string
+        rois_labels = []
+        for _ in range(self.current_invasive_signal.mne_source_estimate.data.shape[0]):
+            rois_labels.append(''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10)))
+        nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
         if self.browser is None or self.browser.figure is None:
             self.browser = do_browse(self.current_invasive_signal, 
                 bads=['LPT8'], n_channels=1, const_event_time=2.0,
                 surface_signal_rois=surface_signal_rois,
+                rois_labels=rois_labels,
                 glyph = self.ieeg_glyph)
 #        elif self.browser.figure is None:
 #            self.browser = do_browse(self.current_invasive_signal, 
 #                bads=['LPT8'], n_channels=1,
 #                                     const_event_time=2.0)
-
-        pt_loc = tuple(self.ieeg_glyph.mlab_source.points[ptid])
-        pt_name = self.ieeg_loc[pt_loc]
-        pt_index = self.ch_names.index(pt_name)
-        print ptid, pt_loc, pt_name, pt_index
 
         self.browser._plot_imitate_scroll(pt_index)
         
@@ -865,7 +872,7 @@ class InaivuModel(Handler):
         interp_func = interp1d( exact_times , data, interpolation, axis=1)
 
         return all_times, data, interp_func, nr_samples
-        
+
 if __name__=='__main__':
     #force Qt to relay ctrl+C
     import signal
