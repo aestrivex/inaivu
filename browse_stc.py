@@ -17,13 +17,14 @@ from mne.viz.utils import (figure_nobar, _toggle_options, #_mutable_defaults,
                     _toggle_proj, tight_layout)
 
 from traits.api import HasTraits, Instance, Dict, Int, Float
-from traitsui.api import View, Item, Handler
+from traitsui.api import View, Item, Handler, UIInfo
 from matplotlib.figure import Figure
 from mpleditor import MPLFigureEditor
 
 class BrowseStc(Handler):
     figure = Instance(Figure) 
     params = Dict
+    info = Instance(UIInfo)
 
     current_channel = Int(-1)
     current_channel_color = Float #this is a scalar not a 4-tuple
@@ -36,6 +37,9 @@ class BrowseStc(Handler):
         title = 'Source Browser'
     )
 
+    def init_info(self, info):
+        self.info = info
+
     def closed(self, info, is_ok):
         self.figure = None 
 
@@ -43,6 +47,11 @@ class BrowseStc(Handler):
         import color_utils 
         color_utils.change_single_glyph_color(self.params['glyph'],
             self.current_channel, self.current_channel_color)
+
+    def reconstruct(self):
+        if self.info is not None:
+            self.info.ui.dispose()
+        self.info.object.edit_traits()
 
 #def _plot_update_raw_proj(params, bools):
 #    """Helper only needs to be called when proj is changed"""
@@ -56,6 +65,13 @@ class BrowseStc(Handler):
 #    params['plot_fun']()
 
 
+    def draw(self):
+        try:
+            self.params['fig'].canvas.draw()
+        except:
+            print 'GOODY FIX'
+            self.reconstruct()
+    
     def _update_raw_data(self):
         """Helper only needs to be called when time or proj is changed"""
         start = self.params['t_start']
@@ -112,8 +128,8 @@ class BrowseStc(Handler):
         s = self.params['fig'].get_size_inches()
         scroll_width = 0.33
         hscroll_dist = 0.33
-        vscroll_dist = 0.3# 0.1
-        l_border = 1.2
+        vscroll_dist = 0.4
+        l_border = 0.6
         r_border = 0.1
         t_border = 0.33
         b_border = 0.5
@@ -153,7 +169,7 @@ class BrowseStc(Handler):
         pos = [l_border + ax_width + vscroll_dist, b_border,
                scroll_width_x, scroll_width_y]
         self.params['ax_button'].set_position(pos)
-        self.params['fig'].canvas.draw()
+        self.draw()
 
 
     def _helper_resize(self, event):
@@ -194,7 +210,8 @@ class BrowseStc(Handler):
                 get_ylim()))
             self.params['ax_hscroll_vertline'].set_data(x, np.array([0., 1.]))
             self.params['vertline_t'].set_text('%0.3f' % x[0])
-        event.canvas.draw()
+        self.draw()
+        #event.canvas.draw()
         # update deep-copied info to persistently draw bads
         self.params['bads'] = bads
 
@@ -260,9 +277,6 @@ class BrowseStc(Handler):
         elif event.key == 'left':
             self._plot_raw_time(self.params['t_start'] - self.params['duration'])
             return
-        elif event.key in ['o', 'p']:
-            _toggle_options(None, self.params)
-            return
 
         # deal with plotting changes
         if ch_changed:
@@ -289,7 +303,7 @@ class BrowseStc(Handler):
                                   len(self.params['ch_names']) - 
                                   self.params['n_channels'] )
 
-        print self.params['ch_start'], 'greeib', start_ch
+        #print self.params['ch_start'], 'greeib', start_ch
       
         if orig_start != self.params['ch_start']:
             #p3int self.params
@@ -413,17 +427,11 @@ class BrowseStc(Handler):
         if len(tick_list) > 1:
             self.params['ax'].set_yticklabels(tick_list)
         else:
-            if self.params['rois_labels'] is not None:
-                self.params['ax'].set_title('%s - %s' %(tick_list[0],
-                    self.params['rois_labels'][inds[ch_ind]]))
-            else:
-                self.params['ax'].set_title(tick_list[0])
-
-
+            self.params['ax'].set_title(tick_list[0])
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
         self.add_vline(self.params['const_event_time'])
-        self.params['fig'].canvas.draw()
+        self.draw()
 
         #do stuff to the underlying glyph
         if self.params['glyph'] is not None:
@@ -455,7 +463,7 @@ class BrowseStc(Handler):
                  n_channels=20, bads=(), surface_signal_rois=None,
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
-                 order='type', const_event_time=None, rois_labels=None,
+                 order='type', const_event_time=None,
                  show_options=False, title=None, show=False, block=False,
                  highpass=None, lowpass=None, filtorder=4, clipping=None,
                  glyph=None):
@@ -554,8 +562,7 @@ class BrowseStc(Handler):
                       ch_names=copy.copy(signal.ch_names),
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
-                      surface_signal_rois=surface_signal_rois,
-                      rois_labels=rois_labels)
+                      surface_signal_rois=surface_signal_rois)
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
@@ -679,7 +686,7 @@ class BrowseStc(Handler):
         #callback_proj = partial(_toggle_proj, self.params=self.params)
         # store these for use by callbacks in the options figure
         #self.params['callback_proj'] = callback_proj
-        self.params['callback_key'] = callback_key
+        #self.params['callback_key'] = callback_key
         # have to store this, or it could get garbage-collected
         self.params['opt_button'] = opt_button
 
@@ -701,6 +708,7 @@ class BrowseStc(Handler):
         callback_dict = {'button_press_event': callback_pick,
                          'scroll_event': callback_scroll,
                          'resize_event': callback_resize,
+                         'key_press_event': callback_key,
                         }
 
         return fig, callback_dict, self.params
