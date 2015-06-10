@@ -296,7 +296,8 @@ class InaivuModel(Handler):
         
         self.ieeg_glyph = mlab.pipeline.glyph( source, scale_mode='none',
             scale_factor=6, mode='sphere', figure=self.scene.mayavi_scene, 
-            color=(1,0,0), name='garbonzo', colormap='BuGn')
+            color=(1,0,0), name='garbonzo', colormap='RdBu')
+        self.ieeg_glyph.module_manager.scalar_lut_manager.reverse_lut = True
 
         #self.ieeg_glyph = mlab.points3d( locs[:,0], locs[:,1], locs[:,2],
         #    color = (1,0,0), scale_factor=6, figure=figure)
@@ -340,7 +341,8 @@ class InaivuModel(Handler):
 
         self.ieeg_glyph = mlab.pipeline.glyph( source, scale_mode='none',
             scale_factor=6, mode='sphere', figure=self.scene.mayavi_scene,
-            color=(1,0,0), name='gableebo', colormap='BuGn')
+            color=(1,0,0), name='gableebo', colormap='RdBu')
+        self.ieeg_glyph.module_manager.scalar_lut_manager.reverse_lut = True
 
         return self.ieeg_glyph
 
@@ -561,7 +563,8 @@ class InaivuModel(Handler):
 
         #unset any changes to the LUT
         self.ieeg_glyph.module_manager.scalar_lut_manager.lut_mode = 'black-white'
-        self.ieeg_glyph.module_manager.scalar_lut_manager.lut_mode = 'BuGn'
+        self.ieeg_glyph.module_manager.scalar_lut_manager.lut_mode = 'RdBu'
+        self.ieeg_glyph.module_manager.scalar_lut_manager.reverse_lut = True
 
         self.ieeg_glyph.mlab_source.dataset.point_data.scalars = (
             np.array(scalars))
