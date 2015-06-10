@@ -17,13 +17,14 @@ from mne.viz.utils import (figure_nobar, _toggle_options, #_mutable_defaults,
                     _toggle_proj, tight_layout)
 
 from traits.api import HasTraits, Instance, Dict, Int, Float
-from traitsui.api import View, Item, Handler
+from traitsui.api import View, Item, Handler, UIInfo
 from matplotlib.figure import Figure
 from mpleditor import MPLFigureEditor
 
 class BrowseStc(Handler):
     figure = Instance(Figure) 
     params = Dict
+    info = Instance(UIInfo)
 
     current_channel = Int(-1)
     current_channel_color = Float #this is a scalar not a 4-tuple
@@ -36,6 +37,9 @@ class BrowseStc(Handler):
         title = 'Source Browser'
     )
 
+    def init_info(self, info):
+        self.info = info
+
     def closed(self, info, is_ok):
         self.figure = None 
 
@@ -43,6 +47,11 @@ class BrowseStc(Handler):
         import color_utils 
         color_utils.change_single_glyph_color(self.params['glyph'],
             self.current_channel, self.current_channel_color)
+
+    def reconstruct(self):
+        if self.info is not None:
+            self.info.ui.dispose()
+            self.info.object.edit_traits()
 
 #def _plot_update_raw_proj(params, bools):
 #    """Helper only needs to be called when proj is changed"""
@@ -56,6 +65,13 @@ class BrowseStc(Handler):
 #    params['plot_fun']()
 
 
+    def draw(self):
+        try:
+            self.params['fig'].canvas.draw()
+        except:
+            print 'GOODY FIX'
+            self.reconstruct()
+    
     def _update_raw_data(self):
         """Helper only needs to be called when time or proj is changed"""
         start = self.params['t_start']
@@ -69,6 +85,10 @@ class BrowseStc(Handler):
         #print start, stop, self.params['t_start'], self.params['duration']
 
         data = self.params['signal'].data[:, start:stop].copy()
+        # if self.params['surface_signal_rois'] is not None:
+        #     data2 = self.params['surface_signal_rois'][:, start:stop].copy()
+        # else:
+        #     data2 = None
         times = self.params['stc'].times[start:stop]
 
         # remove DC
@@ -99,6 +119,7 @@ class BrowseStc(Handler):
         assert(data.shape[0] == len(self.params['ch_names_no_bads'])), \
             'The data dimensions is not equal to the channels number'
         self.params['data'] = data
+        # self.params['data2'] = data2
         self.params['times'] = times
 
 
@@ -107,8 +128,8 @@ class BrowseStc(Handler):
         s = self.params['fig'].get_size_inches()
         scroll_width = 0.33
         hscroll_dist = 0.33
-        vscroll_dist = 0.1
-        l_border = 1.2
+        vscroll_dist = 0.4
+        l_border = 0.6
         r_border = 0.1
         t_border = 0.33
         b_border = 0.5
@@ -135,6 +156,8 @@ class BrowseStc(Handler):
         #print s
 
         self.params['ax'].set_position([l_border, ax_y, ax_width, ax_height])
+        if self.params['ax2'] is not None:
+            self.params['ax2'].set_position([l_border, ax_y, ax_width, ax_height])
         # vscroll (channels)
         pos = [ax_width + l_border + vscroll_dist, ax_y,
                scroll_width_x, ax_height]
@@ -146,7 +169,7 @@ class BrowseStc(Handler):
         pos = [l_border + ax_width + vscroll_dist, b_border,
                scroll_width_x, scroll_width_y]
         self.params['ax_button'].set_position(pos)
-        self.params['fig'].canvas.draw()
+        self.draw()
 
 
     def _helper_resize(self, event):
@@ -187,7 +210,8 @@ class BrowseStc(Handler):
                 get_ylim()))
             self.params['ax_hscroll_vertline'].set_data(x, np.array([0., 1.]))
             self.params['vertline_t'].set_text('%0.3f' % x[0])
-        event.canvas.draw()
+        self.draw()
+        #event.canvas.draw()
         # update deep-copied info to persistently draw bads
         self.params['bads'] = bads
 
@@ -253,9 +277,6 @@ class BrowseStc(Handler):
         elif event.key == 'left':
             self._plot_raw_time(self.params['t_start'] - self.params['duration'])
             return
-        elif event.key in ['o', 'p']:
-            _toggle_options(None, self.params)
-            return
 
         # deal with plotting changes
         if ch_changed:
@@ -282,7 +303,7 @@ class BrowseStc(Handler):
                                   len(self.params['ch_names']) - 
                                   self.params['n_channels'] )
 
-        print self.params['ch_start'], 'greeib', start_ch
+        #print self.params['ch_start'], 'greeib', start_ch
       
         if orig_start != self.params['ch_start']:
             #p3int self.params
@@ -304,15 +325,28 @@ class BrowseStc(Handler):
             self._channels_changed()
 
 
-    def _plot_traces(self, inds, color, bad_color, lines, event_lines,
-                     event_color, offsets):
+    def _plot_traces(self, inds, color, bad_color, lines, lines2,
+                     event_lines, event_color, offsets):
         """Helper for plotting raw"""
+        meg_data = None
+        if self.params['glyph'] is not None:
+            import source_signal
+            # Find the electrode closest roi if exist
+            pt_loc = tuple(self.params['glyph'].mlab_source.points[self.params['ch_start']])
+            nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
+            rois_labels = self.params['surface_signal_rois'].keys()
+            for nearest_roi in nearest_rois:
+                nearest_roi_name = 'ep002_%s_evo'%(nearest_roi).replace('-','_')
+                if nearest_roi_name in rois_labels:
+                    meg_data = np.squeeze(self.params['surface_signal_rois'][nearest_roi_name])
+                    break
 
         #info = self.params['info']
         n_channels = self.params['n_channels']
         self.params['bad_color'] = bad_color
         # do the plotting
         tick_list = []
+        meg_color = 'darkred'
         for ii in range(n_channels):
             ch_ind = ii + self.params['ch_start']
             # let's be generous here and allow users to pass
@@ -330,6 +364,11 @@ class BrowseStc(Handler):
                     this_data = self.params['data'][inds[ch_ind]]
                 else:
                     this_data = np.zeros((1, self.params['data'].shape[1]))
+                if meg_data is not None:
+                    # todo: interpolate, don't cut
+                    meg_data = meg_data[:len(this_data)]
+                # else:
+                #     this_data_2 = None
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
                 #this_z = -1 if ch_name in info['bads'] else 0
@@ -343,13 +382,23 @@ class BrowseStc(Handler):
                 lines[ii].set_xdata(self.params['times'])
                 lines[ii].set_color(this_color)
                 lines[ii].set_zorder(this_z)
-                vars(lines[ii])['ch_name'] = ch_name
-                vars(lines[ii])['def_color'] = color 
+                if meg_data is not None:
+                    lines2[ii].set_xdata(self.params['times'])
+                    lines2[ii].set_ydata(meg_data)
+                    lines2[ii].set_color(meg_color)
+                    lines2[ii].set_zorder(this_z)
+                    vars(lines[ii])['ch_name'] = ch_name
+                    vars(lines[ii])['def_color'] = color
+                else:
+                    lines2[ii].set_xdata([])
+                    lines2[ii].set_ydata([])
                     #color[self.params['types'][inds[ch_ind]]]
             else:
                 # "remove" lines
                 lines[ii].set_xdata([])
                 lines[ii].set_ydata([])
+                lines2[ii].set_xdata([])
+                lines2[ii].set_ydata([])
         # deal with event lines
         if self.params['event_times'] is not None:
             # find events in the time window
@@ -385,20 +434,35 @@ class BrowseStc(Handler):
         #                       self.params['times'][0] + self.params['duration'], False)
         self.params['ax'].set_xlim(self.params['times'][0],
                               self.params['times'][0] + self.params['times'][-1], False)
-        self.params['ax'].set_ylim(np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1)))
+        ylimval = max(map(abs,[np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1))]))
+        self.params['ax'].set_ylim([-ylimval, ylimval])
+
+        if self.params['ax2'] is not None:
+            self.params['ax2'].set_xlim(self.params['times'][0],
+                self.params['times'][0] + self.params['times'][-1], False)
+            # self.params['ax2'].set_ylim(np.min(self.params['data2']*(-1)), np.max(self.params['data2']*(-1)))
 
         if len(tick_list) > 1:
             self.params['ax'].set_yticklabels(tick_list)
         else:
-            self.params['ax'].set_title(tick_list[0])
+            if meg_data is not None:
+                nearest_roi.replace('_',' ')
+                nearest_roi.replace('-',' ')
+                hemi = nearest_roi[-2:]
+                nearest_roi = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi[:-3])
+                self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi))
+                self.params['ax'].legend([lines[0], lines2[0]],['Electrode', 'MEG ROI'])
+            else:
+                self.params['ax'].set_title('%s (No MEG Signal)' % tick_list[0])
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
         self.add_vline(self.params['const_event_time'])
-        self.params['fig'].canvas.draw()
+        self.draw()
 
         #do stuff to the underlying glyph
         if self.params['glyph'] is not None:
-            import color_utils 
+            import color_utils
+            import source_signal
             #restored any previously saved colors
             color_utils.change_single_glyph_color(self.params['glyph'],
                 self.current_channel, self.current_channel_color)
@@ -414,7 +478,6 @@ class BrowseStc(Handler):
             color_utils.change_single_glyph_color(self.params['glyph'],
                 self.params['ch_start'], 2 )
 
-
     def add_vline(self, event_time):
         x = np.array([event_time] * 2)
         self.params['ax_vertline'].set_data(x, np.array(self.params['ax'].get_ylim()))
@@ -423,7 +486,7 @@ class BrowseStc(Handler):
 
 
     def plot_raw(self, signal, events=None, duration=10.0, start=0.0, 
-                 n_channels=20, bads=(),
+                 n_channels=20, bads=(), surface_signal_rois=None,
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
                  order='type', const_event_time=None,
@@ -435,6 +498,9 @@ class BrowseStc(Handler):
         import matplotlib as mpl
 
         stc = signal.mne_source_estimate
+
+        # pt_loc = tuple(glyph.mlab_source.points)
+
 
         # color, scalings = _mutable_defaults(('color', color),
         #                                     ('scalings_plot_raw', scalings))
@@ -525,7 +591,7 @@ class BrowseStc(Handler):
                       ch_names=copy.copy(signal.ch_names),
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
-                        )
+                      surface_signal_rois=surface_signal_rois)
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
@@ -541,6 +607,10 @@ class BrowseStc(Handler):
         # store these so they can be fixed on resize
         self.params['fig'] = fig
         self.params['ax'] = ax
+        if self.params['surface_signal_rois'] is not None:
+            self.params['ax2'] = ax2 = ax.twinx()
+        else:
+            self.params['ax2'] = ax2 = None
         self.params['ax_hscroll'] = ax_hscroll
         self.params['ax_vscroll'] = ax_vscroll
         self.params['ax_button'] = ax_button
@@ -593,13 +663,23 @@ class BrowseStc(Handler):
                        for ev_num in sorted(event_color.keys())]
         ylim = [n_channels * 2 + 1, 0]
 
+        if surface_signal_rois is not None:
+            all_surf_data = np.array([x.squeeze() for x in surface_signal_rois.values() if type(x) is np.ndarray])
+
         if self.params['n_channels'] > 1:
             ax.set_yticks(offsets)
             lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
             ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
             ax.set_ylim(ylim)
+            if ax2 is not None:
+                lines2 = [ax2.plot([np.nan])[0] for _ in range(n_ch)]
+            else:
+                lines2 = [ax2.plot([np.nan])[0]]
         else:
             lines = [ax.plot([np.nan])[0]]
+            lines2 = [ax2.plot([np.nan])[0]]
+            ylimval = max(map(abs,[np.min(all_surf_data), np.max(all_surf_data)]))
+            ax2.set_ylim([-ylimval, ylimval])
 
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,
@@ -615,7 +695,7 @@ class BrowseStc(Handler):
 
         self.params['plot_fun'] = partial(self._plot_traces,  
             inds=inds, color=color, bad_color=bad_color,
-            lines=lines, event_lines=event_lines,
+            lines=lines, lines2=lines2, event_lines=event_lines,
             event_color=event_color, offsets=offsets)
 
         # set up callbacks
@@ -640,7 +720,7 @@ class BrowseStc(Handler):
         #callback_proj = partial(_toggle_proj, self.params=self.params)
         # store these for use by callbacks in the options figure
         #self.params['callback_proj'] = callback_proj
-        self.params['callback_key'] = callback_key
+        #self.params['callback_key'] = callback_key
         # have to store this, or it could get garbage-collected
         self.params['opt_button'] = opt_button
 
@@ -662,6 +742,7 @@ class BrowseStc(Handler):
         callback_dict = {'button_press_event': callback_pick,
                          'scroll_event': callback_scroll,
                          'resize_event': callback_resize,
+                         'key_press_event': callback_key,
                         }
 
         return fig, callback_dict, self.params

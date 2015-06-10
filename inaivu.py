@@ -41,6 +41,7 @@ class InaivuModel(Handler):
 
     noninvasive_signals = Dict # Str -> Instance(NoninvasiveSignal)
     current_noninvasive_signal = Instance(source_signal.NoninvasiveSignal)
+    megsig = Dict
 
     opacity = Float(.35)
 
@@ -96,9 +97,10 @@ class InaivuModel(Handler):
             Item('run_script_button', show_label=False),
         ),
         #Item('time_slider', style='custom', show_label=False),
-        Item('shell', editor=ShellEditor(), height=300, show_label=False),
+        # Item('shell', editor=ShellEditor(), height=300, show_label=False),
         
-        title='Das ist meine Wassermelone es ist MEINE',
+        # title='Das ist meine Wassermelone es ist MEINE',
+        title='Multi-Modalities Visualization',
         resizable=True,
     )
 
@@ -224,30 +226,38 @@ class InaivuModel(Handler):
         ptid = int(picker.point_id / self.ieeg_glyph.glyph.glyph_source.
             glyph_source.output.points.to_array().shape[0])
 
-        from browse_stc import do_browse
-        if self.browser is None or self.browser.figure is None:
-            self.browser = do_browse(self.current_invasive_signal, 
-                bads=['LPT8'], n_channels=1,
-                                     const_event_time=2.0,
-                glyph = self.ieeg_glyph)
-#        elif self.browser.figure is None:
-#            self.browser = do_browse(self.current_invasive_signal, 
-#                bads=['LPT8'], n_channels=1,
-#                                     const_event_time=2.0)
-
         pt_loc = tuple(self.ieeg_glyph.mlab_source.points[ptid])
         pt_name = self.ieeg_loc[pt_loc]
         pt_index = self.ch_names.index(pt_name)
         print ptid, pt_loc, pt_name, pt_index
 
+        from browse_stc import do_browse
+        # todo: change this to the real roi surface signal
+        # surface_signal_rois = np.random.randn(*self.current_invasive_signal.mne_source_estimate.data.shape)
+        # import random
+        # import string
+        # rois_labels = self.megsig.keys()
+        # for _ in range(self.current_invasive_signal.mne_source_estimate.data.shape[0]):
+        #     rois_labels.append(''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10)))
+        # nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
+        if self.browser is None or self.browser.figure is None:
+            self.browser = do_browse(self.current_invasive_signal,
+                bads=['LPT8'], n_channels=1, const_event_time=2.0,
+                surface_signal_rois=self.megsig,
+                glyph = self.ieeg_glyph)
+#        elif self.browser.figure is None:
+#            self.browser = do_browse(self.current_invasive_signal,
+#                bads=['LPT8'], n_channels=1,
+#                                     const_event_time=2.0)
+
         self.browser._plot_imitate_scroll(pt_index)
-        
-    def plot_ieeg(self, raw=None, montage=None, elec_locs=None, 
+
+    def plot_ieeg(self, raw=None, montage=None, elec_locs=None,
             ch_names=None):
         '''
         given a raw .fif file with sEEG electrodes, (and potentially other
         electrodes), extract and plot all of the sEEG electrodes in the file.
-        
+
         alternately accepts a list of electrode locations and channel names
         or a montage file
 
@@ -282,7 +292,7 @@ class InaivuModel(Handler):
 
         else:
             locs = np.array(elec_locs)
-            
+
             self.ch_names = ch_names
 
             elecs = [(tuple(loc), name) for name, loc in zip(ch_names, locs)]
@@ -293,7 +303,7 @@ class InaivuModel(Handler):
 
         source = mlab.pipeline.scalar_scatter(locs[:,0], locs[:,1], locs[:,2],
             figure=self.scene.mayavi_scene)
-        
+
         self.ieeg_glyph = mlab.pipeline.glyph( source, scale_mode='none',
             scale_factor=6, mode='sphere', figure=self.scene.mayavi_scene, 
             color=(1,0,0), name='garbonzo', colormap='RdBu')
@@ -370,7 +380,7 @@ class InaivuModel(Handler):
                                                      }
 
         for (strucl, strucr), _ in structures_list.values():
-            
+
             for strucu in (strucl, strucr):
                 surf_file = os.path.join(subjects_dir, subject,
                     'ascii', 'aseg_%03d.srf'%strucu )
@@ -381,7 +391,7 @@ class InaivuModel(Handler):
                 v, tri = mne.read_surface(surf_file)
 
                 surf = mlab.triangular_mesh( v[:,0], v[:,1], v[:,2], tri,
-                    opacity = .35, 
+                    opacity = .35,
                     color=(.5, .5, .5))
                     #)
 
@@ -413,7 +423,7 @@ class InaivuModel(Handler):
 
         for struct in structures_list:
             (strucl, strucr), color = structures_list[struct]
-            
+
             for strucu in (strucl, strucr):
 
                 strucw = np.where(asegd==strucu)
@@ -428,14 +438,17 @@ class InaivuModel(Handler):
 
                 print np.shape(strucd)
 
-                src = mlab.pipeline.scalar_scatter( strucd[:,0], strucd[:,1], 
+                src = mlab.pipeline.scalar_scatter( strucd[:,0], strucd[:,1],
                     strucd[:,2], figure=self.scene.mayavi_scene )
 
-                mlab.pipeline.glyph( src, scale_mode='none', 
+                mlab.pipeline.glyph( src, scale_mode='none',
                     scale_factor=0.4, mode='sphere', opacity=1,
                     figure=self.scene.mayavi_scene, color=color )
-            
-    
+
+
+    def add_meg_signal(self, signal):
+        self.megsig = signal
+
     def add_invasive_signal(self, name, signal):
         if len(self.ch_names) == 0:
             error_dialog("Cannot add invasive signal without first "
@@ -487,7 +500,7 @@ class InaivuModel(Handler):
         self.ieeg_glyph.actor.mapper.scalar_visibility = True
         self.ieeg_glyph.module_manager.scalar_lut_manager.data_range = (0,1)
 
-    def _display_interpolated_noninvasive_signal_timepoint(self, idx, ifunc, 
+    def _display_interpolated_noninvasive_signal_timepoint(self, idx, ifunc,
             interpolation='quadratic'):
         scalars = ifunc(idx)
 
@@ -500,7 +513,7 @@ class InaivuModel(Handler):
             lh_scalar = scalars[len(lvt):]
             #lh_scalar = scalars[lvt]
             lh_surf = self.brain.brains[0]._geo_surf
-            if len(lvt) < len(self.brain.geo['lh'].coords): 
+            if len(lvt) < len(self.brain.geo['lh'].coords):
                 if self.smoothing_steps > 0:
                     lh_scalar = self.smoothl * lh_scalar
                 else:
@@ -578,7 +591,7 @@ class InaivuModel(Handler):
         if (0 < len(lvt) < len(self.brain.geo['lh'].coords) and
                 self.smoothing_steps > 0):
             ladj = surfer.utils.mesh_edges(self.brain.geo['lh'].faces)
-            self.smoothl = surfer.utils.smoothing_matrix(lvt, ladj, 
+            self.smoothl = surfer.utils.smoothing_matrix(lvt, ladj,
                 self.smoothing_steps)
 
         if (0 < len(rvt) < len(self.brain.geo['rh'].coords) and
@@ -626,7 +639,7 @@ class InaivuModel(Handler):
             rh_scalar = stc.rh_data
 
         self._setup_noninvasive_viz()
-    
+
         if len(lvt) > 0:
             lh_surf = self.brain.brains[0]._geo_surf
             if len(lvt) < len(self.brain.geo['lh'].coords):
@@ -672,7 +685,7 @@ class InaivuModel(Handler):
                 error_dialog("Noninvasive signal has no source estimate")
 
             ni_times, _, nfunc, nr_samples = self._create_movie_samples(
-                self.current_noninvasive_signal, tmin=noninvasive_tmin,   
+                self.current_noninvasive_signal, tmin=noninvasive_tmin,
                 tmax=noninvasive_tmax,
                 framerate=framerate, dilation=dilation,
                 interpolation=interpolation, normalization=normalization,
@@ -692,7 +705,7 @@ class InaivuModel(Handler):
                 error_dialog("Invasive signal has no source estimate")
 
             i_times, _, ifunc, nr_samples = self._create_movie_samples(
-                self.current_invasive_signal, tmin=invasive_tmin, 
+                self.current_invasive_signal, tmin=invasive_tmin,
                 tmax=invasive_tmax,
                 framerate=framerate, dilation=dilation,
                 interpolation=interpolation, normalization=normalization,
@@ -724,7 +737,7 @@ class InaivuModel(Handler):
                     "samples in invasive and noninvasive timecourses.\n"
                     "Invasive samples: %i\nNoninvasive samples: %i"%(
                     isteps,nsteps))
-             
+
 
         from tempfile import mkdtemp
         tempdir = mkdtemp()
@@ -742,7 +755,7 @@ class InaivuModel(Handler):
                 iidx = i_times[i]
                 self._display_interpolated_invasive_signal_timepoint(
                     iidx, ifunc)
-        
+
             if noninvasive:
                 nidx = ni_times[i]
                 self._display_interpolated_noninvasive_signal_timepoint(
@@ -769,7 +782,7 @@ class InaivuModel(Handler):
         _gui.set_busy(busy=orig_val)
         _gui.process_events()
 
-    def _create_movie_samples(self, sig, framerate=24, 
+    def _create_movie_samples(self, sig, framerate=24,
             interpolation='quadratic',
             dilation=2, tmin=None, tmax=None, normalization='local',
             is_invasive=False, nr_samples=-1):
@@ -804,8 +817,8 @@ class InaivuModel(Handler):
         tstep_size = 1 / (framerate * dilation)
         sstep_size = tstep_size / sample_rate
         sstep_ceil = int(np.ceil(sstep_size))
-    
-        #to calculate the desired number of samples in the time window, 
+
+        #to calculate the desired number of samples in the time window,
         #use the code which checks for step size and optionally adds 1 sample
         #however, the other signal might have a different sampling rate and
         #lack the extra sample even if this signal has it exactly.
@@ -841,7 +854,7 @@ class InaivuModel(Handler):
         #print movie_sample_times.shape, raw_sample_times.shape
 
         #this interpolation is exactly linear
-        all_times = interp1d(raw_sample_times, 
+        all_times = interp1d(raw_sample_times,
             exact_times)(movie_sample_times)
 
         data = sig.data[:,smin:smax+1]
@@ -855,7 +868,7 @@ class InaivuModel(Handler):
             dmax = np.max(sig.data)
             dmin = np.min(sig.data)
             data = (data-dmin) / (dmax-dmin)
-        elif normalization=='local': 
+        elif normalization=='local':
             dmax = np.max(data)
             dmin = np.min(data)
             data = (data-dmin) / (dmax-dmin)
@@ -866,7 +879,7 @@ class InaivuModel(Handler):
         interp_func = interp1d( exact_times , data, interpolation, axis=1)
 
         return all_times, data, interp_func, nr_samples
-        
+
 if __name__=='__main__':
     #force Qt to relay ctrl+C
     import signal

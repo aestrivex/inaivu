@@ -79,8 +79,8 @@ class _MPLFigureEditor(Editor):
         #canvas.mpl_connect('button_press_event',self.object.circle_click)
         #canvas.mpl_connect('motion_notify_event',
 
-        for cb in cb_dict:
-            canvas.mpl_connect(cb, cb_dict[cb])
+        #for cb in cb_dict:
+        #    canvas.mpl_connect(cb, cb_dict[cb])
 
         #self.tooltip=wx.ToolTip(tip='')
         #self.tooltip.SetDelay(2000)
@@ -103,6 +103,9 @@ class _MPLFigureEditor(Editor):
 
         layout = QtGui.QVBoxLayout( panel )
         layout.addWidget(canvas)
+
+        canvas.setFocusPolicy( QtCore.Qt.ClickFocus )
+        canvas.setFocus()
 
         return panel
 

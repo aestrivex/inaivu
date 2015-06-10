@@ -5,6 +5,7 @@ import numpy as np
 from scipy import io
 import mne
 import nibabel as nib
+import os
 from error_dialog import error_dialog
 
 def adj_sort(cur_ord, desired_ord):
@@ -317,3 +318,131 @@ def create_signal_from_fieldtrip_timefqchan(ft_file):
         ivs.signals_dict = tsignal
 
         yield ivs
+
+def identify_roi_from_atlas(pos, approx=4, atlas=None, subjects_dir=None,
+    subject=None ):
+    '''
+    Find the surface labels contacted by an electrode at this position
+    in RAS space.
+
+    Parameters
+    ----------
+
+    pos : np.ndarray
+        1x3 matrix holding position of the electrode to identify
+    approx : int
+        Number of millimeters error radius
+    atlas : str or None
+        The string containing the name of the surface parcellation,
+        does not apply to subcortical structures. If None, aparc is used.
+    '''
+    if subjects_dir is None or subjects_dir=='':
+        subjects_dir = os.environ['SUBJECTS_DIR']
+    if subject is None or subject=='':
+        subject = os.environ['SUBJECT']
+
+    if atlas is None or atlas in ('', 'aparc'):
+        return identify_roi_from_aparc(pos, approx=approx,
+            subjects_dir=subjects_dir, subject=subject)
+
+    from scipy.spatial.distance import cdist
+    # conceptually, we should grow the closest vertex around this electrode
+    # probably following snapping but the code for this function is not
+    # altered either way
+
+    # load the surfaces and annotation
+    # uses the pial surface, this change is pushed to MNE python
+
+    lh_pia, _ = nib.freesurfer.read_geometry(
+        os.path.join(subjects_dir, subject, 'surf', 'lh.pial'))
+
+    rh_pia, _ = nib.freesurfer.read_geometry(
+        os.path.join(subjects_dir, subject, 'surf', 'rh.pial'))
+
+    pia = np.vstack((lh_pia, rh_pia))
+
+    # find closest vertex
+    # import pdb
+    # pdb.set_trace()
+    closest_vert = np.argmin(cdist(pia, [pos]))
+
+    # grow the area of surface surrounding the vertex
+    import mne
+
+    # we force the label to only contact one hemisphere even if it is
+    # beyond the extent of the medial surface
+    hemi_str = 'lh' if closest_vert<len(lh_pia) else 'rh'
+    hemi_code = 0 if hemi_str=='lh' else 1
+
+    if hemi_str == 'rh':
+        closest_vert -= len(lh_pia)
+
+    radius_label, = mne.grow_labels(subject, closest_vert, approx, hemi_code,
+        subjects_dir=subjects_dir, surface='pial')
+
+    parcels = mne.read_labels_from_annot(subject, parc=atlas, hemi=hemi_str,
+        subjects_dir=subjects_dir, surf_name='pial')
+
+    regions = []
+    for parcel in parcels:
+        if len(np.intersect1d(parcel.vertices, radius_label.vertices))>0:
+            #force convert from unicode
+            regions.append(str(parcel.name))
+
+    subcortical_regions = identify_roi_from_aparc(pos, approx=approx,
+        subjects_dir=subjects_dir, subject=subject, subcortical_only=True)
+
+    if regions is not None and subcortical_regions is not None:
+        regions.extend(subcortical_regions)
+
+    return regions
+
+def identify_roi_from_aparc( pos, approx=4, subjects_dir=None, subject=None,
+    subcortical_only = False):
+    '''
+    Find the volumetric labels contacted by an electrode at this position
+    in RAS space.
+
+    Parameters
+    ----------
+
+    pos : np.ndarray
+        1x3 matrix holding position of the electrode to identify
+    approx : int
+        Number of millimeters error radius
+    subcortical_only : bool
+        if True, exclude cortical labels
+    '''
+    if subjects_dir is None or subjects_dir=='':
+        subjects_dir = os.environ['SUBJECTS_DIR']
+    if subject is None or subject=='':
+        subject = os.environ['SUBJECT']
+
+    def find_neighboring_regions(pos, mri_dat, region, approx, excludes):
+        spot_sz = int(np.around(approx * 2 + 1))
+        x, y, z = np.meshgrid(range(spot_sz), range(spot_sz), range(spot_sz))
+
+        # approx is in units of millimeters as long as we use the RAS space
+        # segmentation
+        neighb = np.vstack((np.reshape(x, (1, spot_sz ** 3)),
+            np.reshape(y, (1, spot_sz ** 3)),
+            np.reshape(z, (1, spot_sz ** 3)))).T - approx
+
+        regions = []
+
+        #import pdb
+        #pdb.set_trace()
+
+        for p in xrange(neighb.shape[0]):
+            cx, cy, cz = (pos[0]+neighb[p,0], pos[1]+neighb[p,1],
+                pos[2]+neighb[p,2])
+            d_type = mri_dat[cx, cy, cz]
+            label_index = region['index'].index(d_type)
+            regions.append(region['label'][label_index])
+
+        if excludes:
+            from re import compile
+            excluded = compile('|'.join(excludes))
+            regions = [x for x in regions if not excluded.search(x)]
+
+        return np.unique(regions).tolist()
