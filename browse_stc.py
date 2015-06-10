@@ -451,7 +451,7 @@ class BrowseStc(Handler):
                 hemi = nearest_roi[-2:]
                 nearest_roi = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi[:-3])
                 self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi))
-                self.params['ax'].legend(['Electrode', 'MEG ROI'])
+                self.params['ax'].legend([lines[0], lines2[0]],['Electrode', 'MEG ROI'])
             else:
                 self.params['ax'].set_title('%s (No MEG Signal)' % tick_list[0])
 
