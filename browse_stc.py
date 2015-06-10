@@ -51,7 +51,7 @@ class BrowseStc(Handler):
     def reconstruct(self):
         if self.info is not None:
             self.info.ui.dispose()
-        self.info.object.edit_traits()
+            self.info.object.edit_traits()
 
 #def _plot_update_raw_proj(params, bools):
 #    """Helper only needs to be called when proj is changed"""
@@ -85,10 +85,10 @@ class BrowseStc(Handler):
         #print start, stop, self.params['t_start'], self.params['duration']
 
         data = self.params['signal'].data[:, start:stop].copy()
-        if self.params['surface_signal_rois'] is not None:
-            data2 = self.params['surface_signal_rois'][:, start:stop].copy()
-        else:
-            data2 = None
+        # if self.params['surface_signal_rois'] is not None:
+        #     data2 = self.params['surface_signal_rois'][:, start:stop].copy()
+        # else:
+        #     data2 = None
         times = self.params['stc'].times[start:stop]
 
         # remove DC
@@ -119,7 +119,7 @@ class BrowseStc(Handler):
         assert(data.shape[0] == len(self.params['ch_names_no_bads'])), \
             'The data dimensions is not equal to the channels number'
         self.params['data'] = data
-        self.params['data2'] = data2
+        # self.params['data2'] = data2
         self.params['times'] = times
 
 
@@ -328,12 +328,25 @@ class BrowseStc(Handler):
     def _plot_traces(self, inds, color, bad_color, lines, lines2,
                      event_lines, event_color, offsets):
         """Helper for plotting raw"""
+        meg_data = None
+        if self.params['glyph'] is not None:
+            import source_signal
+            # Find the electrode closest roi if exist
+            pt_loc = tuple(self.params['glyph'].mlab_source.points[self.params['ch_start']])
+            nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
+            rois_labels = self.params['surface_signal_rois'].keys()
+            for nearest_roi in nearest_rois:
+                nearest_roi_name = 'ep002_%s_evo'%(nearest_roi).replace('-','_')
+                if nearest_roi_name in rois_labels:
+                    meg_data = np.squeeze(self.params['surface_signal_rois'][nearest_roi_name])
+                    break
 
         #info = self.params['info']
         n_channels = self.params['n_channels']
         self.params['bad_color'] = bad_color
         # do the plotting
         tick_list = []
+        meg_color = 'darkred'
         for ii in range(n_channels):
             ch_ind = ii + self.params['ch_start']
             # let's be generous here and allow users to pass
@@ -351,10 +364,11 @@ class BrowseStc(Handler):
                     this_data = self.params['data'][inds[ch_ind]]
                 else:
                     this_data = np.zeros((1, self.params['data'].shape[1]))
-                if self.params['data2'] is not None:
-                    this_data_2 = self.params['data2'][inds[ch_ind]]
-                else:
-                    this_data_2 = None
+                if meg_data is not None:
+                    # todo: interpolate, don't cut
+                    meg_data = meg_data[:len(this_data)]
+                # else:
+                #     this_data_2 = None
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
                 #this_z = -1 if ch_name in info['bads'] else 0
@@ -368,13 +382,16 @@ class BrowseStc(Handler):
                 lines[ii].set_xdata(self.params['times'])
                 lines[ii].set_color(this_color)
                 lines[ii].set_zorder(this_z)
-                if this_data_2 is not None:
+                if meg_data is not None:
                     lines2[ii].set_xdata(self.params['times'])
-                    lines2[ii].set_ydata(this_data_2 * (-1))
-                    lines2[ii].set_color(this_color)
+                    lines2[ii].set_ydata(meg_data)
+                    lines2[ii].set_color(meg_color)
                     lines2[ii].set_zorder(this_z)
-                vars(lines[ii])['ch_name'] = ch_name
-                vars(lines[ii])['def_color'] = color 
+                    vars(lines[ii])['ch_name'] = ch_name
+                    vars(lines[ii])['def_color'] = color
+                else:
+                    lines2[ii].set_xdata([])
+                    lines2[ii].set_ydata([])
                     #color[self.params['types'][inds[ch_ind]]]
             else:
                 # "remove" lines
@@ -417,17 +434,26 @@ class BrowseStc(Handler):
         #                       self.params['times'][0] + self.params['duration'], False)
         self.params['ax'].set_xlim(self.params['times'][0],
                               self.params['times'][0] + self.params['times'][-1], False)
-        self.params['ax'].set_ylim(np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1)))
+        ylimval = max(map(abs,[np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1))]))
+        self.params['ax'].set_ylim([-ylimval, ylimval])
 
         if self.params['ax2'] is not None:
             self.params['ax2'].set_xlim(self.params['times'][0],
                 self.params['times'][0] + self.params['times'][-1], False)
-            self.params['ax2'].set_ylim(np.min(self.params['data2']*(-1)), np.max(self.params['data2']*(-1)))
+            # self.params['ax2'].set_ylim(np.min(self.params['data2']*(-1)), np.max(self.params['data2']*(-1)))
 
         if len(tick_list) > 1:
             self.params['ax'].set_yticklabels(tick_list)
         else:
-            self.params['ax'].set_title(tick_list[0])
+            if meg_data is not None:
+                nearest_roi.replace('_',' ')
+                nearest_roi.replace('-',' ')
+                hemi = nearest_roi[-2:]
+                nearest_roi = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi[:-3])
+                self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi))
+                self.params['ax'].legend(['Electrode', 'MEG ROI'])
+            else:
+                self.params['ax'].set_title('%s (No MEG Signal)' % tick_list[0])
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
         self.add_vline(self.params['const_event_time'])
@@ -435,7 +461,8 @@ class BrowseStc(Handler):
 
         #do stuff to the underlying glyph
         if self.params['glyph'] is not None:
-            import color_utils 
+            import color_utils
+            import source_signal
             #restored any previously saved colors
             color_utils.change_single_glyph_color(self.params['glyph'],
                 self.current_channel, self.current_channel_color)
@@ -450,7 +477,6 @@ class BrowseStc(Handler):
                 (1, 1, .4))
             color_utils.change_single_glyph_color(self.params['glyph'],
                 self.params['ch_start'], 2 )
-
 
     def add_vline(self, event_time):
         x = np.array([event_time] * 2)
@@ -472,6 +498,9 @@ class BrowseStc(Handler):
         import matplotlib as mpl
 
         stc = signal.mne_source_estimate
+
+        # pt_loc = tuple(glyph.mlab_source.points)
+
 
         # color, scalings = _mutable_defaults(('color', color),
         #                                     ('scalings_plot_raw', scalings))
@@ -634,6 +663,9 @@ class BrowseStc(Handler):
                        for ev_num in sorted(event_color.keys())]
         ylim = [n_channels * 2 + 1, 0]
 
+        if surface_signal_rois is not None:
+            all_surf_data = np.array([x.squeeze() for x in surface_signal_rois.values() if type(x) is np.ndarray])
+
         if self.params['n_channels'] > 1:
             ax.set_yticks(offsets)
             lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
@@ -646,6 +678,8 @@ class BrowseStc(Handler):
         else:
             lines = [ax.plot([np.nan])[0]]
             lines2 = [ax2.plot([np.nan])[0]]
+            ylimval = max(map(abs,[np.min(all_surf_data), np.max(all_surf_data)]))
+            ax2.set_ylim([-ylimval, ylimval])
 
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,

@@ -41,6 +41,7 @@ class InaivuModel(Handler):
 
     noninvasive_signals = Dict # Str -> Instance(NoninvasiveSignal)
     current_noninvasive_signal = Instance(source_signal.NoninvasiveSignal)
+    megsig = Dict
 
     opacity = Float(.35)
 
@@ -96,9 +97,10 @@ class InaivuModel(Handler):
             Item('run_script_button', show_label=False),
         ),
         #Item('time_slider', style='custom', show_label=False),
-        Item('shell', editor=ShellEditor(), height=300, show_label=False),
+        # Item('shell', editor=ShellEditor(), height=300, show_label=False),
         
-        title='Das ist meine Wassermelone es ist MEINE',
+        # title='Das ist meine Wassermelone es ist MEINE',
+        title='Multi-Modalities Visualization',
         resizable=True,
     )
 
@@ -231,18 +233,17 @@ class InaivuModel(Handler):
 
         from browse_stc import do_browse
         # todo: change this to the real roi surface signal
-        surface_signal_rois = np.random.randn(*self.current_invasive_signal.mne_source_estimate.data.shape)
-        import random
-        import string
-        rois_labels = []
-        for _ in range(self.current_invasive_signal.mne_source_estimate.data.shape[0]):
-            rois_labels.append(''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10)))
-        nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
+        # surface_signal_rois = np.random.randn(*self.current_invasive_signal.mne_source_estimate.data.shape)
+        # import random
+        # import string
+        # rois_labels = self.megsig.keys()
+        # for _ in range(self.current_invasive_signal.mne_source_estimate.data.shape[0]):
+        #     rois_labels.append(''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10)))
+        # nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
         if self.browser is None or self.browser.figure is None:
             self.browser = do_browse(self.current_invasive_signal,
                 bads=['LPT8'], n_channels=1, const_event_time=2.0,
-                surface_signal_rois=surface_signal_rois,
-                rois_labels=rois_labels,
+                surface_signal_rois=self.megsig,
                 glyph = self.ieeg_glyph)
 #        elif self.browser.figure is None:
 #            self.browser = do_browse(self.current_invasive_signal,
@@ -442,6 +443,9 @@ class InaivuModel(Handler):
                     scale_factor=0.4, mode='sphere', opacity=1,
                     figure=self.scene.mayavi_scene, color=color )
 
+
+    def add_meg_signal(self, signal):
+        self.megsig = signal
 
     def add_invasive_signal(self, name, signal):
         if len(self.ch_names) == 0:
