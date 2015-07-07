@@ -292,6 +292,24 @@ class BrowseStc(Handler):
             self.params['ch_start'] = len(self.params['ch_names'])
             self.params['ch_start'] -= rem if rem != 0 else self.params['n_channels']
         self.params['plot_fun']()
+        # todo; add code that highlight the selected electrode on the brain
+        if self.previous_sel is not None:
+            self.model._new_glyph_color = self.previous_color
+            self.model._single_glyph_to_recolor = self.previous_sel.asct()
+            self.model._update_single_glyph_event = True
+
+        if self.distinct_prev_sel != self.previous_sel:
+            self.distinct_prev_sel = self.previous_sel
+
+        self.previous_sel = self.cur_sel
+        self.previous_color = self.model._colors.keys().index(self.cur_grid)
+
+        selection_color = (self.model._colors.keys().index('selection'))
+
+        self.model._new_glyph_color = selection_color
+        self.model._single_glyph_to_recolor = self.cur_sel.asct()
+        self.model._update_single_glyph_event = True
+
 
 
     def _plot_imitate_scroll(self, start_ch):
