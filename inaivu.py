@@ -42,6 +42,8 @@ class InaivuModel(Handler):
     noninvasive_signals = Dict # Str -> Instance(NoninvasiveSignal)
     current_noninvasive_signal = Instance(source_signal.NoninvasiveSignal)
     megsig = Dict
+    invasive_labels = Dict
+    invasive_labels_id = Any
 
     opacity = Float(.35)
 
@@ -54,7 +56,7 @@ class InaivuModel(Handler):
     browser = Any #Instance(BrowseStc)
 
     current_script_file = File
-    run_script_button = Button('Run script')
+    run_script_button = Button('Load')
 
 
     # movie window
@@ -93,7 +95,8 @@ class InaivuModel(Handler):
         ),
         HGroup(
             Item('make_movie_button', show_label=False),
-            Item('current_script_file'),
+            Label('Subject'),
+            Item('current_script_file', show_label=False),
             Item('run_script_button', show_label=False),
         ),
         #Item('time_slider', style='custom', show_label=False),
@@ -244,7 +247,9 @@ class InaivuModel(Handler):
             self.browser = do_browse(self.current_invasive_signal,
                 bads=['LPT8'], n_channels=1, const_event_time=2.0,
                 surface_signal_rois=self.megsig,
-                glyph = self.ieeg_glyph)
+                glyph = self.ieeg_glyph, brain=self.brain,
+                invasive_labels=self.invasive_labels,
+                invasive_labels_id=self.invasive_labels_id)
 #        elif self.browser.figure is None:
 #            self.browser = do_browse(self.current_invasive_signal,
 #                bads=['LPT8'], n_channels=1,
@@ -448,6 +453,11 @@ class InaivuModel(Handler):
 
     def add_meg_signal(self, signal):
         self.megsig = signal
+
+    def add_invasive_labels(self, labels, labels_id=None):
+        self.invasive_labels = labels
+        self.invasive_labels_id = labels.keys()[0] if labels_id is None \
+            else labels[labels_id]
 
     def add_invasive_signal(self, name, signal):
         if len(self.ch_names) == 0:

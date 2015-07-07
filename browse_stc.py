@@ -325,7 +325,7 @@ class BrowseStc(Handler):
             self._channels_changed()
 
 
-    def _plot_traces(self, inds, color, bad_color, lines, lines2,
+    def _plot_traces(self, inds, color, bad_color, lines, lines_b, lines2,
                      event_lines, event_color, offsets):
         """Helper for plotting raw"""
         meg_data = None
@@ -335,10 +335,13 @@ class BrowseStc(Handler):
             pt_loc = tuple(self.params['glyph'].mlab_source.points[self.params['ch_start']])
             nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
             rois_labels = self.params['surface_signal_rois'].keys()
+            self.params['brain'].remove_labels(hemi='rh')
+            self.params['brain'].remove_labels(hemi='lh')
             for nearest_roi in nearest_rois:
-                nearest_roi_name = 'ep002_%s_evo'%(nearest_roi).replace('-','_')
+                nearest_roi_name = 'ep002_%s_evo'%(nearest_roi.name).replace('-','_')
                 if nearest_roi_name in rois_labels:
                     meg_data = np.squeeze(self.params['surface_signal_rois'][nearest_roi_name])
+                    self.params['brain'].add_label(nearest_roi, alpha=0.7) # hemi=nearest_roi.name[-2:])
                     break
 
         #info = self.params['info']
@@ -378,10 +381,18 @@ class BrowseStc(Handler):
 
                 # subtraction here gets corect orientation for flipped ylim
                 # lines[ii].set_ydata(offset - this_data)
-                lines[ii].set_ydata(this_data * (-1))
+                if self.params['invasive_labels'] is not None:
+                    labels_id = self.params['invasive_labels_id']
+                    labels = self.params['invasive_labels'][labels_id]
+                    unique_labels = np.unique(labels)
+                    lines[ii].set_ydata(this_data[labels==unique_labels[0]] * (-1))
+                    lines_b[ii].set_ydata(this_data[labels==unique_labels[1]] * (-1))
+                else:
+                    lines[ii].set_ydata(this_data * (-1))
                 lines[ii].set_xdata(self.params['times'])
                 lines[ii].set_color(this_color)
                 lines[ii].set_zorder(this_z)
+
                 if meg_data is not None:
                     lines2[ii].set_xdata(self.params['times'])
                     lines2[ii].set_ydata(meg_data)
@@ -397,8 +408,11 @@ class BrowseStc(Handler):
                 # "remove" lines
                 lines[ii].set_xdata([])
                 lines[ii].set_ydata([])
-                lines2[ii].set_xdata([])
-                lines2[ii].set_ydata([])
+                if lines_b is not None:
+                    lines_b[ii].set_xdata([])
+                if lines2 is not None:
+                    lines2[ii].set_xdata([])
+                    lines2[ii].set_ydata([])
         # deal with event lines
         if self.params['event_times'] is not None:
             # find events in the time window
@@ -446,14 +460,23 @@ class BrowseStc(Handler):
             self.params['ax'].set_yticklabels(tick_list)
         else:
             if meg_data is not None:
-                nearest_roi.replace('_',' ')
-                nearest_roi.replace('-',' ')
-                hemi = nearest_roi[-2:]
-                nearest_roi = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi[:-3])
-                self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi))
-                self.params['ax'].legend([lines[0], lines2[0]],['Electrode', 'MEG ROI'])
+                nearest_roi_name = nearest_roi.name.replace('_',' ')
+                nearest_roi_name = nearest_roi_name.replace('-',' ')
+                hemi = nearest_roi_name[-2:]
+                nearest_roi_name = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi_name[:-3])
+                self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi_name))
+                if self.params['invasive_labels'] is None:
+                    self.params['ax'].legend([lines[0], lines2[0]],['Electrode', 'MEG ROI'])
+                else:
+                    self.params['ax'].legend([lines[0], lines_b[0], lines2[0]],
+                        ['Electrode %s' % unique_labels[0], 'Electrode %s' % unique_labels[1], 'MEG ROI'])
             else:
-                self.params['ax'].set_title('%s (No MEG Signal)' % tick_list[0])
+                self.params['ax'].set_title('%s (No Cortical MEG ROI)' % tick_list[0])
+                if self.params['invasive_labels'] is None:
+                    self.params['ax'].legend([lines[0]],['Electrode'])
+                else:
+                    self.params['ax'].legend([lines[0], lines_b[0]],
+                        ['Electrode %s' % unique_labels[0], 'Electrode %s' % unique_labels[1]])
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
         self.add_vline(self.params['const_event_time'])
@@ -492,7 +515,8 @@ class BrowseStc(Handler):
                  order='type', const_event_time=None,
                  show_options=False, title=None, show=False, block=False,
                  highpass=None, lowpass=None, filtorder=4, clipping=None,
-                 glyph=None):
+                 glyph=None, brain=None, invasive_labels=None,
+                 invasive_labels_id=None):
 
         import matplotlib.pyplot as plt
         import matplotlib as mpl
@@ -591,7 +615,9 @@ class BrowseStc(Handler):
                       ch_names=copy.copy(signal.ch_names),
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
-                      surface_signal_rois=surface_signal_rois)
+                      surface_signal_rois=surface_signal_rois,
+                      brain=brain, invasive_labels=invasive_labels,
+                      invasive_labels_id=invasive_labels_id)
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
@@ -607,8 +633,10 @@ class BrowseStc(Handler):
         # store these so they can be fixed on resize
         self.params['fig'] = fig
         self.params['ax'] = ax
+        # self.params['ax'].set_ylabel('mV')
         if self.params['surface_signal_rois'] is not None:
             self.params['ax2'] = ax2 = ax.twinx()
+            # self.params['ax2'].set_ylabel('fT')
         else:
             self.params['ax2'] = ax2 = None
         self.params['ax_hscroll'] = ax_hscroll
@@ -669,6 +697,8 @@ class BrowseStc(Handler):
         if self.params['n_channels'] > 1:
             ax.set_yticks(offsets)
             lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
+            if invasive_labels_id is not None:
+                lines_b = [ax.plot([np.nan])[0] for _ in range(n_ch)]
             ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
             ax.set_ylim(ylim)
             if ax2 is not None:
@@ -677,9 +707,13 @@ class BrowseStc(Handler):
                 lines2 = [ax2.plot([np.nan])[0]]
         else:
             lines = [ax.plot([np.nan])[0]]
-            lines2 = [ax2.plot([np.nan])[0]]
-            ylimval = max(map(abs,[np.min(all_surf_data), np.max(all_surf_data)]))
-            ax2.set_ylim([-ylimval, ylimval])
+            lines_b = [ax.plot([np.nan])[0]] if invasive_labels_id is not None else None
+            if ax2 is not None:
+                lines2 = [ax2.plot([np.nan])[0]]
+                ylimval = max(map(abs,[np.min(all_surf_data), np.max(all_surf_data)]))
+                ax2.set_ylim([-ylimval, ylimval])
+            else:
+                lines2 = None
 
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,
@@ -695,7 +729,7 @@ class BrowseStc(Handler):
 
         self.params['plot_fun'] = partial(self._plot_traces,  
             inds=inds, color=color, bad_color=bad_color,
-            lines=lines, lines2=lines2, event_lines=event_lines,
+            lines=lines, lines_b=lines_b, lines2=lines2, event_lines=event_lines,
             event_color=event_color, offsets=offsets)
 
         # set up callbacks

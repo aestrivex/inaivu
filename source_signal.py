@@ -290,9 +290,16 @@ def create_signal_from_fieldtrip_stclike(ft_file, source_field,
 
     return sig 
 
+
+def read_labels_from_cell_array_in_struct(mfile, field, labels_info):
+    ftd = io.loadmat(mfile)
+    labels = {}
+    for col_num, label_name in labels_info.iteritems():
+        labels[label_name] = map(str, map(lambda x:x[col_num][0], ftd[field]))
+    return labels
+
 # this function does not operate on well formulated fieldtrip files
 # consequently it does no processing that we should trust
-
 def create_signal_from_fieldtrip_timefqchan(ft_file):
     ftd = io.loadmat(ft_file)
 
@@ -387,13 +394,14 @@ def identify_roi_from_atlas(pos, approx=4, atlas=None, subjects_dir=None,
     for parcel in parcels:
         if len(np.intersect1d(parcel.vertices, radius_label.vertices))>0:
             #force convert from unicode
-            regions.append(str(parcel.name))
+            # regions.append(str(parcel.name))
+            regions.append(parcel)
 
-    subcortical_regions = identify_roi_from_aparc(pos, approx=approx,
-        subjects_dir=subjects_dir, subject=subject, subcortical_only=True)
-
-    if regions is not None and subcortical_regions is not None:
-        regions.extend(subcortical_regions)
+    # subcortical_regions = identify_roi_from_aparc(pos, approx=approx,
+    #     subjects_dir=subjects_dir, subject=subject, subcortical_only=True)
+    #
+    # if regions is not None and subcortical_regions is not None:
+    #     regions.extend(subcortical_regions)
 
     return regions
 
