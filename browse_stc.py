@@ -95,10 +95,6 @@ class BrowseStc(Handler):
         # data = self.params['signal'].data[:, start:stop].copy()
         for name, signal in self.params['signals'].iteritems():
             data[name] = signal.data[:, start:stop].copy()
-        # if self.params['surface_signal_rois'] is not None:
-        #     data2 = self.params['surface_signal_rois'][:, start:stop].copy()
-        # else:
-        #     data2 = None
         times = self.params['stc'].times[start:stop]
 
         self.params['data'] = {}
@@ -357,19 +353,21 @@ class BrowseStc(Handler):
     def _plot_traces(self, inds, color, bad_color, lines, lines2,
                      event_lines, event_color, offsets):
         """Helper for plotting raw"""
-        meg_data = None
+        meg_data = {}
         if self.params['glyph'] is not None:
             import source_signal
             # Find the electrode closest roi if exist
             pt_loc = tuple(self.params['glyph'].mlab_source.points[self.params['ch_start']])
             nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
-            rois_labels = self.params['surface_signal_rois'].keys()
+            first_surf_label = self.params['surface_signal_rois'].keys()[0]
+            rois_labels = self.params['surface_signal_rois'][first_surf_label].keys()
             self.params['brain'].remove_labels(hemi='rh')
             self.params['brain'].remove_labels(hemi='lh')
             for nearest_roi in nearest_rois:
                 nearest_roi_name = 'ep002_%s_evo'%(nearest_roi.name).replace('-','_')
                 if nearest_roi_name in rois_labels:
-                    meg_data = np.squeeze(self.params['surface_signal_rois'][nearest_roi_name])
+                    for k, signal in self.params['surface_signal_rois'].iteritems():
+                        meg_data[k] = np.squeeze(signal[nearest_roi_name])
                     self.params['brain'].add_label(nearest_roi, alpha=0.7) # hemi=nearest_roi.name[-2:])
                     break
 
@@ -401,9 +399,10 @@ class BrowseStc(Handler):
                         this_data[k] = data[inds[ch_ind]]
                     else:
                         this_data[k] = np.zeros((1, data.shape[1]))
-                if meg_data is not None:
+                if meg_data:
                     # todo: interpolate, don't cut
-                    meg_data = meg_data[:len(this_data[this_data.keys()[0]])]
+                    for k in meg_data.keys():
+                        meg_data[k] = meg_data[k][:len(this_data[this_data.keys()[0]])]
 
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
@@ -415,21 +414,24 @@ class BrowseStc(Handler):
                 # subtraction here gets corect orientation for flipped ylim
                 # lines[ii].set_ydata(offset - this_data)
                 for (k, data), color in zip(this_data.iteritems(), colors):
-                    lines[k][ii].set_ydata(this_data[k] * (-1))
+                    lines[k][ii].set_ydata(data * (-1))
                     lines[k][ii].set_xdata(self.params['times'])
                     lines[k][ii].set_color(color)
                     lines[k][ii].set_zorder(this_z)
 
-                if meg_data is not None:
-                    lines2[ii].set_xdata(self.params['times'])
-                    lines2[ii].set_ydata(meg_data)
-                    lines2[ii].set_color(meg_color)
-                    lines2[ii].set_zorder(this_z)
-                    vars(lines[k][ii])['ch_name'] = ch_name
-                    vars(lines[k][ii])['def_color'] = color
+                if meg_data:
+                    for (k, data), color in zip(meg_data.iteritems(), colors[::-1]):
+                        lines2[k][ii].set_xdata(self.params['times'])
+                        lines2[k][ii].set_ydata(data)
+                        lines2[k][ii].set_color(color)
+                        lines2[k][ii].set_zorder(this_z)
+                    # vars(lines[k][ii])['ch_name'] = ch_name
+                    # vars(lines[k][ii])['def_color'] = color
                 else:
-                    lines2[ii].set_xdata([])
-                    lines2[ii].set_ydata([])
+                    if lines2 is not None:
+                        for k in lines2.keys():
+                            lines2[k][ii].set_xdata([])
+                            lines2[k][ii].set_ydata([])
                     #color[self.params['types'][inds[ch_ind]]]
             else:
                 # "remove" lines
@@ -437,8 +439,9 @@ class BrowseStc(Handler):
                     lines[k][ii].set_xdata([])
                     lines[k][ii].set_ydata([])
                 if lines2 is not None:
-                    lines2[ii].set_xdata([])
-                    lines2[ii].set_ydata([])
+                    for k in lines2.keys():
+                        lines2[k][ii].set_xdata([])
+                        lines2[k][ii].set_ydata([])
         # deal with event lines
         if self.params['event_times'] is not None:
             # find events in the time window
@@ -493,15 +496,18 @@ class BrowseStc(Handler):
             else:
                 elec_labels = ['Electrode']
             elec_h = [lines[k][0] for k in this_data.keys()]
-            if meg_data is not None:
+            if meg_data:
                 nearest_roi_name = nearest_roi.name.replace('_',' ')
                 nearest_roi_name = nearest_roi_name.replace('-',' ')
                 hemi = nearest_roi_name[-2:]
                 nearest_roi_name = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi_name[:-3])
                 self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi_name))
-                elec_labels.append('MEG ROI')
-                elec_h.append(lines2[0])
-                self.params['ax'].legend(elec_h,elec_labels)
+                if len(meg_data.keys()) > 1:
+                    elec_labels.extend(['MEG ROI %s' % k for k in meg_data.keys()])
+                else:
+                    elec_labels.append('MEG ROI')
+                elec_h.extend([lines2[k][0] for k in meg_data.keys()])
+                self.params['ax'].legend(elec_h, elec_labels)
             else:
                 self.params['ax'].set_title('%s (No Cortical MEG ROI)' % tick_list[0])
                 self.params['ax'].legend(elec_h, elec_labels)
@@ -645,8 +651,7 @@ class BrowseStc(Handler):
                       projector=None, sfreq=sfreq,
                       bads=bads,const_event_time=const_event_time,
                       surface_signal_rois=surface_signal_rois,
-                      brain=brain, invasive_labels=invasive_labels,
-                      invasive_labels_id=invasive_labels_id)
+                      brain=brain)
 
         # set up plotting
         fig = figure_nobar(facecolor=bgcolor, figsize=None)
@@ -720,10 +725,12 @@ class BrowseStc(Handler):
                        for ev_num in sorted(event_color.keys())]
         ylim = [n_channels * 2 + 1, 0]
 
+        all_surf_data = {}
         if surface_signal_rois is not None:
-            all_surf_data = np.array([x.squeeze() for x in surface_signal_rois.values() if type(x) is np.ndarray])
+            for k, signal in surface_signal_rois.iteritems():
+                all_surf_data[k] = np.array([x.squeeze() for x in signal.values() if type(x) is np.ndarray])
 
-        lines = {}
+        lines, lines2 = {}, {}
         if self.params['n_channels'] > 1:
             ax.set_yticks(offsets)
             for k in signals.keys():
@@ -731,18 +738,21 @@ class BrowseStc(Handler):
             ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
             ax.set_ylim(ylim)
             if ax2 is not None:
-                lines2 = [ax2.plot([np.nan])[0] for _ in range(n_ch)]
-            else:
-                lines2 = [ax2.plot([np.nan])[0]]
+                for k in surface_signal_rois.keys():
+                    lines2[k] = [ax2.plot([np.nan])[0] for _ in range(n_ch)]
+            # else:
+            #     for k in surface_signal_rois.keys():
+            #         lines2[k] = [ax2.plot([np.nan])[0]]
         else:
             for k in signals.keys():
                 lines[k] = [ax.plot([np.nan])[0]]
             if ax2 is not None:
-                lines2 = [ax2.plot([np.nan])[0]]
-                ylimval = max(map(abs,[np.min(all_surf_data), np.max(all_surf_data)]))
+                for k in surface_signal_rois.keys():
+                    lines2[k] = [ax2.plot([np.nan])[0]]
+                ylimval = max([max(map(abs,[np.min(d), np.max(d)])) for d in all_surf_data.values()])
                 ax2.set_ylim([-ylimval, ylimval])
             else:
-                lines2 = None
+                lines2 = {}
 
         vertline_color = (0., 0.75, 0.)
         self.params['ax_vertline'] = ax.plot([0, 0], ylim, color=vertline_color,

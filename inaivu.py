@@ -2,11 +2,13 @@ from __future__ import division
 import os
 import numpy as np
 from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
-    Range, on_trait_change, File, Button, Int, Bool, Enum)
+    Range, on_trait_change, File, Button, Int, Bool, Enum, List)
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler, RangeEditor, Action, CancelButton, Handler,
-    NullEditor, Label)
+    NullEditor, Label, FileEditor, InstanceEditor)
 from error_dialog import error_dialog
+
+from custom_list_editor import CustomListEditor
 
 import mne
 from mayavi import mlab
@@ -16,6 +18,16 @@ import nibabel as nib
 from collections import OrderedDict
 
 import source_signal
+
+class InvasiveFile(HasTraits):
+
+    invasive_file = File
+    file_label = Str
+
+    traits_view = View(Item(name='file', editor=FileEditor()),
+                       Item(name='label'), )
+
+
 
 class InaivuModel(Handler):
 
@@ -42,8 +54,8 @@ class InaivuModel(Handler):
     noninvasive_signals = Dict # Str -> Instance(NoninvasiveSignal)
     current_noninvasive_signal = Instance(source_signal.NoninvasiveSignal)
     megsig = Dict
-    invasive_labels = Any #Dict
-    invasive_labels_id = Any
+    # invasive_labels = Any #Dict
+    # invasive_labels_id = Any
 
     opacity = Float(.35)
 
@@ -58,6 +70,8 @@ class InaivuModel(Handler):
     current_script_file = File
     run_script_button = Button('Load')
 
+    invaisve_data_file = Instance(InvasiveFile)
+    invaisve_data_files = List(InvasiveFile) # Gx2 list
 
     # movie window
     make_movie_button = Button('Movie')
@@ -98,6 +112,11 @@ class InaivuModel(Handler):
             Label('Subject'),
             Item('current_script_file', show_label=False),
             Item('run_script_button', show_label=False),
+        ),
+        VGroup(
+            Label('Invaisve data files:'),
+            Item('invaisve_data_files', editor=CustomListEditor(
+                editor=InstanceEditor(name='invaisve_data_file',editable=True), style='custom'), show_label=False, ),
         ),
         #Item('time_slider', style='custom', show_label=False),
         # Item('shell', editor=ShellEditor(), height=300, show_label=False),
@@ -235,15 +254,6 @@ class InaivuModel(Handler):
         print ptid, pt_loc, pt_name, pt_index
 
         from browse_stc import do_browse
-        # todo: change this to the real roi surface signal
-        # surface_signal_rois = np.random.randn(*self.current_invasive_signal.mne_source_estimate.data.shape)
-        # import random
-        # import string
-        # rois_labels = self.megsig.keys()
-        # for _ in range(self.current_invasive_signal.mne_source_estimate.data.shape[0]):
-        #     rois_labels.append(''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10)))
-        # nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
-        self.invasive_labels = None
         if self.browser is None or self.browser.figure is None:
             self.browser = do_browse(self.invasive_signals,
                 bads=['LPT8'], n_channels=1, const_event_time=2.0,
@@ -449,14 +459,11 @@ class InaivuModel(Handler):
                     scale_factor=0.4, mode='sphere', opacity=1,
                     figure=self.scene.mayavi_scene, color=color )
 
+    def add_meg_signal(self, name, signal):
+        self.megsig[name] = signal
 
-    def add_meg_signal(self, signal):
-        self.megsig = signal
-
-    def add_invasive_labels(self, labels, labels_id=None):
-        self.invasive_labels = labels
-        self.invasive_labels_id = labels.keys()[0] if labels_id is None \
-            else labels[labels_id]
+    # def add_invasive_labels(self, labels):
+    #     self.invasive_labels = labels
 
     def add_invasive_signal(self, name, signal):
         if len(self.ch_names) == 0:
