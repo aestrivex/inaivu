@@ -16,7 +16,7 @@ from mne.io.proj import setup_proj
 from mne.viz.utils import (figure_nobar, _toggle_options, #_mutable_defaults,
                     _toggle_proj, tight_layout)
 
-from traits.api import HasTraits, Instance, Dict, Int, Float
+from traits.api import HasTraits, Instance, Dict, Int, Float, Any
 from traitsui.api import View, Item, Handler, UIInfo
 from matplotlib.figure import Figure
 from mpleditor import MPLFigureEditor
@@ -25,6 +25,10 @@ class BrowseStc(Handler):
     figure = Instance(Figure) 
     params = Dict
     info = Instance(UIInfo)
+
+    # cur_sel = Any
+    # previous_sel = Any
+    # distinct_prev_sel = Any
 
     current_channel = Int(-1)
     current_channel_color = Float #this is a scalar not a 4-tuple
@@ -36,6 +40,9 @@ class BrowseStc(Handler):
         # title='Slovenian language differential geometry, 4th ed.'
         title = 'Source Browser'
     )
+
+    class model(object):
+        pass
 
     def init_info(self, info):
         self.info = info
@@ -84,41 +91,46 @@ class BrowseStc(Handler):
 
         #print start, stop, self.params['t_start'], self.params['duration']
 
-        data = self.params['signal'].data[:, start:stop].copy()
+        data = {}
+        # data = self.params['signal'].data[:, start:stop].copy()
+        for name, signal in self.params['signals'].iteritems():
+            data[name] = signal.data[:, start:stop].copy()
         # if self.params['surface_signal_rois'] is not None:
         #     data2 = self.params['surface_signal_rois'][:, start:stop].copy()
         # else:
         #     data2 = None
         times = self.params['stc'].times[start:stop]
 
-        # remove DC
-        if self.params['remove_dc'] is True:
-            data -= np.mean(data, axis=1)[:, np.newaxis]
-        if self.params['ba'] is not None:
-            data = filtfilt(self.params['ba'][0], self.params['ba'][1],
-                                        data, axis=1, padlen=0)
-        # scale
-        # for di in range(data.shape[0]):
-        #     data[di] /= 1e-3 #self.params['scalings'][di]
-            # stim channels should be hard limited
-            #if self.params['types'][di] == 'stim':
-            #    data[di] = np.minimum(data[di], 1.0)
-        # clip
-        if self.params['clipping'] == 'transparent':
-            data[np.logical_or(data > 1, data < -1)] = np.nan
-        elif self.params['clipping'] == 'clamp':
-            data = np.clip(data, -1, 1, data)
-        # Remove bad channels from data
-        # First check if it wasn't deleted
-        if data.shape[0] > len(self.params['ch_names_no_bads']):
-            data = np.delete(data, self.params['bad_indices'], 0)
+        self.params['data'] = {}
+        for k in data.keys():
+            # remove DC
+            if self.params['remove_dc'] is True:
+                data[k] -= np.mean(data[k], axis=1)[:, np.newaxis]
+            if self.params['ba'] is not None:
+                data[k] = filtfilt(self.params['ba'][0], self.params['ba'][1],
+                                            data[k], axis=1, padlen=0)
+            # scale
+            # for di in range(data.shape[0]):
+            #     data[di] /= 1e-3 #self.params['scalings'][di]
+                # stim channels should be hard limited
+                #if self.params['types'][di] == 'stim':
+                #    data[di] = np.minimum(data[di], 1.0)
+            # clip
+            if self.params['clipping'] == 'transparent':
+                data[k][np.logical_or(data[k] > 1, data[k] < -1)] = np.nan
+            elif self.params['clipping'] == 'clamp':
+                data[k] = np.clip(data[k], -1, 1, data[k])
+            # Remove bad channels from data
+            # First check if it wasn't deleted
+            if data[k].shape[0] > len(self.params['ch_names_no_bads']):
+                data[k] = np.delete(data[k], self.params['bad_indices'], 0)
 
         #import pdb
         #pdb.set_trace()
 
-        assert(data.shape[0] == len(self.params['ch_names_no_bads'])), \
-            'The data dimensions is not equal to the channels number'
-        self.params['data'] = data
+            assert(data[k].shape[0] == len(self.params['ch_names_no_bads'])), \
+                'The data dimensions is not equal to the channels number'
+            self.params['data'][k] = data[k]
         # self.params['data2'] = data2
         self.params['times'] = times
 
@@ -292,23 +304,22 @@ class BrowseStc(Handler):
             self.params['ch_start'] = len(self.params['ch_names'])
             self.params['ch_start'] -= rem if rem != 0 else self.params['n_channels']
         self.params['plot_fun']()
-        # todo; add code that highlight the selected electrode on the brain
-        if self.previous_sel is not None:
-            self.model._new_glyph_color = self.previous_color
-            self.model._single_glyph_to_recolor = self.previous_sel.asct()
-            self.model._update_single_glyph_event = True
-
-        if self.distinct_prev_sel != self.previous_sel:
-            self.distinct_prev_sel = self.previous_sel
-
-        self.previous_sel = self.cur_sel
-        self.previous_color = self.model._colors.keys().index(self.cur_grid)
-
-        selection_color = (self.model._colors.keys().index('selection'))
-
-        self.model._new_glyph_color = selection_color
-        self.model._single_glyph_to_recolor = self.cur_sel.asct()
-        self.model._update_single_glyph_event = True
+        # if self.previous_sel is not None:
+        #     self.model._new_glyph_color = self.previous_color
+        #     self.model._single_glyph_to_recolor = self.previous_sel.asct()
+        #     self.model._update_single_glyph_event = True
+        #
+        # if self.distinct_prev_sel != self.previous_sel:
+        #     self.distinct_prev_sel = self.previous_sel
+        #
+        # self.previous_sel = self.cur_sel
+        # self.previous_color = self.model._colors.keys().index(self.cur_grid)
+        #
+        # selection_color = (self.model._colors.keys().index('selection'))
+        #
+        # self.model._new_glyph_color = selection_color
+        # self.model._single_glyph_to_recolor = self.cur_sel.asct()
+        # self.model._update_single_glyph_event = True
 
 
 
@@ -343,7 +354,7 @@ class BrowseStc(Handler):
             self._channels_changed()
 
 
-    def _plot_traces(self, inds, color, bad_color, lines, lines_b, lines2,
+    def _plot_traces(self, inds, color, bad_color, lines, lines2,
                      event_lines, event_color, offsets):
         """Helper for plotting raw"""
         meg_data = None
@@ -368,11 +379,14 @@ class BrowseStc(Handler):
         # do the plotting
         tick_list = []
         meg_color = 'darkred'
+        # take the dark colors without the greens
+        import matplotlib
+        colors = [c for c in matplotlib.colors.cnames.keys() if c.startswith('dark')][5:]
         for ii in range(n_channels):
             ch_ind = ii + self.params['ch_start']
             # let's be generous here and allow users to pass
             # n_channels per view >= the number of traces available
-            if ii >= len(lines):
+            if ii >= len(lines[lines.keys()[0]]):
                 break
             elif ch_ind < len(self.params['ch_names']):
                 # scale to fit
@@ -381,15 +395,16 @@ class BrowseStc(Handler):
                 offset = offsets[ii]
 
                 # do NOT operate in-place lest this get screwed up
-                if inds[ch_ind] < self.params['data'].shape[0]:
-                    this_data = self.params['data'][inds[ch_ind]]
-                else:
-                    this_data = np.zeros((1, self.params['data'].shape[1]))
+                this_data = {}
+                for k, data in self.params['data'].iteritems():
+                    if inds[ch_ind] < data.shape[0]:
+                        this_data[k] = data[inds[ch_ind]]
+                    else:
+                        this_data[k] = np.zeros((1, data.shape[1]))
                 if meg_data is not None:
                     # todo: interpolate, don't cut
-                    meg_data = meg_data[:len(this_data)]
-                # else:
-                #     this_data_2 = None
+                    meg_data = meg_data[:len(this_data[this_data.keys()[0]])]
+
                 #this_color = bad_color if ch_name in info['bads'] else color
                 this_color = color
                 #this_z = -1 if ch_name in info['bads'] else 0
@@ -399,35 +414,28 @@ class BrowseStc(Handler):
 
                 # subtraction here gets corect orientation for flipped ylim
                 # lines[ii].set_ydata(offset - this_data)
-                if self.params['invasive_labels'] is not None:
-                    labels_id = self.params['invasive_labels_id']
-                    labels = self.params['invasive_labels'][labels_id]
-                    unique_labels = np.unique(labels)
-                    lines[ii].set_ydata(this_data[labels==unique_labels[0]] * (-1))
-                    lines_b[ii].set_ydata(this_data[labels==unique_labels[1]] * (-1))
-                else:
-                    lines[ii].set_ydata(this_data * (-1))
-                lines[ii].set_xdata(self.params['times'])
-                lines[ii].set_color(this_color)
-                lines[ii].set_zorder(this_z)
+                for (k, data), color in zip(this_data.iteritems(), colors):
+                    lines[k][ii].set_ydata(this_data[k] * (-1))
+                    lines[k][ii].set_xdata(self.params['times'])
+                    lines[k][ii].set_color(color)
+                    lines[k][ii].set_zorder(this_z)
 
                 if meg_data is not None:
                     lines2[ii].set_xdata(self.params['times'])
                     lines2[ii].set_ydata(meg_data)
                     lines2[ii].set_color(meg_color)
                     lines2[ii].set_zorder(this_z)
-                    vars(lines[ii])['ch_name'] = ch_name
-                    vars(lines[ii])['def_color'] = color
+                    vars(lines[k][ii])['ch_name'] = ch_name
+                    vars(lines[k][ii])['def_color'] = color
                 else:
                     lines2[ii].set_xdata([])
                     lines2[ii].set_ydata([])
                     #color[self.params['types'][inds[ch_ind]]]
             else:
                 # "remove" lines
-                lines[ii].set_xdata([])
-                lines[ii].set_ydata([])
-                if lines_b is not None:
-                    lines_b[ii].set_xdata([])
+                for k in this_data.keys():
+                    lines[k][ii].set_xdata([])
+                    lines[k][ii].set_ydata([])
                 if lines2 is not None:
                     lines2[ii].set_xdata([])
                     lines2[ii].set_ydata([])
@@ -466,7 +474,10 @@ class BrowseStc(Handler):
         #                       self.params['times'][0] + self.params['duration'], False)
         self.params['ax'].set_xlim(self.params['times'][0],
                               self.params['times'][0] + self.params['times'][-1], False)
-        ylimval = max(map(abs,[np.min(self.params['data']*(-1)), np.max(self.params['data']*(-1))]))
+        ylimvals = []
+        for data in self.params['data'].values():
+            ylimvals.append(max(map(abs,[np.min(data*(-1)), np.max(data*(-1))])))
+        ylimval = max(ylimvals)
         self.params['ax'].set_ylim([-ylimval, ylimval])
 
         if self.params['ax2'] is not None:
@@ -477,24 +488,23 @@ class BrowseStc(Handler):
         if len(tick_list) > 1:
             self.params['ax'].set_yticklabels(tick_list)
         else:
+            if len(self.params['signals'].keys()) > 1:
+                elec_labels = ['Electrode %s' % k for k in self.params['signals'].keys()]
+            else:
+                elec_labels = ['Electrode']
+            elec_h = [lines[k][0] for k in this_data.keys()]
             if meg_data is not None:
                 nearest_roi_name = nearest_roi.name.replace('_',' ')
                 nearest_roi_name = nearest_roi_name.replace('-',' ')
                 hemi = nearest_roi_name[-2:]
                 nearest_roi_name = '%s %s' % ('left' if hemi=='lh' else 'right', nearest_roi_name[:-3])
                 self.params['ax'].set_title('%s - %s' % (tick_list[0], nearest_roi_name))
-                if self.params['invasive_labels'] is None:
-                    self.params['ax'].legend([lines[0], lines2[0]],['Electrode', 'MEG ROI'])
-                else:
-                    self.params['ax'].legend([lines[0], lines_b[0], lines2[0]],
-                        ['Electrode %s' % unique_labels[0], 'Electrode %s' % unique_labels[1], 'MEG ROI'])
+                elec_labels.append('MEG ROI')
+                elec_h.append(lines2[0])
+                self.params['ax'].legend(elec_h,elec_labels)
             else:
                 self.params['ax'].set_title('%s (No Cortical MEG ROI)' % tick_list[0])
-                if self.params['invasive_labels'] is None:
-                    self.params['ax'].legend([lines[0]],['Electrode'])
-                else:
-                    self.params['ax'].legend([lines[0], lines_b[0]],
-                        ['Electrode %s' % unique_labels[0], 'Electrode %s' % unique_labels[1]])
+                self.params['ax'].legend(elec_h, elec_labels)
 
         self.params['vsel_patch'].set_y(self.params['ch_start'])
         self.add_vline(self.params['const_event_time'])
@@ -526,7 +536,7 @@ class BrowseStc(Handler):
         self.params['vertline_t'].set_text('%0.3f' % x[0])
 
 
-    def plot_raw(self, signal, events=None, duration=10.0, start=0.0, 
+    def plot_raw(self, signals, events=None, duration=10.0, start=0.0,
                  n_channels=20, bads=(), surface_signal_rois=None,
                  bgcolor='w', color=None, bad_color=(0.8, 0.8, 0.8),
                  event_color='cyan', scalings=None, remove_dc=True, 
@@ -539,6 +549,7 @@ class BrowseStc(Handler):
         import matplotlib.pyplot as plt
         import matplotlib as mpl
 
+        signal = signals[signals.keys()[0]]
         stc = signal.mne_source_estimate
 
         # pt_loc = tuple(glyph.mlab_source.points)
@@ -622,8 +633,8 @@ class BrowseStc(Handler):
                                % key)
 
         # set up projection and data parameters
-        self.params = dict(stc=stc, ch_start=0, t_start=start, 
-                      signal=signal,
+        self.params = dict(stc=stc, ch_start=0, t_start=start,
+                      signals=signals,
                       glyph=glyph,
                       duration=duration,
                       remove_dc=remove_dc, ba=ba,
@@ -712,11 +723,11 @@ class BrowseStc(Handler):
         if surface_signal_rois is not None:
             all_surf_data = np.array([x.squeeze() for x in surface_signal_rois.values() if type(x) is np.ndarray])
 
+        lines = {}
         if self.params['n_channels'] > 1:
             ax.set_yticks(offsets)
-            lines = [ax.plot([np.nan])[0] for _ in range(n_ch)]
-            if invasive_labels_id is not None:
-                lines_b = [ax.plot([np.nan])[0] for _ in range(n_ch)]
+            for k in signals.keys():
+                lines[k] = [ax.plot([np.nan])[0] for _ in range(n_ch)]
             ax.set_yticklabels(['X' * max([len(ch) for ch in self.params['ch_names']])])
             ax.set_ylim(ylim)
             if ax2 is not None:
@@ -724,8 +735,8 @@ class BrowseStc(Handler):
             else:
                 lines2 = [ax2.plot([np.nan])[0]]
         else:
-            lines = [ax.plot([np.nan])[0]]
-            lines_b = [ax.plot([np.nan])[0]] if invasive_labels_id is not None else None
+            for k in signals.keys():
+                lines[k] = [ax.plot([np.nan])[0]]
             if ax2 is not None:
                 lines2 = [ax2.plot([np.nan])[0]]
                 ylimval = max(map(abs,[np.min(all_surf_data), np.max(all_surf_data)]))
@@ -747,7 +758,7 @@ class BrowseStc(Handler):
 
         self.params['plot_fun'] = partial(self._plot_traces,  
             inds=inds, color=color, bad_color=bad_color,
-            lines=lines, lines_b=lines_b, lines2=lines2, event_lines=event_lines,
+            lines=lines, lines2=lines2, event_lines=event_lines,
             event_color=event_color, offsets=offsets)
 
         # set up callbacks

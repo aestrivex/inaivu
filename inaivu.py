@@ -42,7 +42,7 @@ class InaivuModel(Handler):
     noninvasive_signals = Dict # Str -> Instance(NoninvasiveSignal)
     current_noninvasive_signal = Instance(source_signal.NoninvasiveSignal)
     megsig = Dict
-    invasive_labels = Dict
+    invasive_labels = Any #Dict
     invasive_labels_id = Any
 
     opacity = Float(.35)
@@ -243,13 +243,12 @@ class InaivuModel(Handler):
         # for _ in range(self.current_invasive_signal.mne_source_estimate.data.shape[0]):
         #     rois_labels.append(''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(10)))
         # nearest_rois = source_signal.identify_roi_from_atlas(pt_loc, atlas='laus250')
+        self.invasive_labels = None
         if self.browser is None or self.browser.figure is None:
-            self.browser = do_browse(self.current_invasive_signal,
+            self.browser = do_browse(self.invasive_signals,
                 bads=['LPT8'], n_channels=1, const_event_time=2.0,
                 surface_signal_rois=self.megsig,
-                glyph = self.ieeg_glyph, brain=self.brain,
-                invasive_labels=self.invasive_labels,
-                invasive_labels_id=self.invasive_labels_id)
+                glyph = self.ieeg_glyph, brain=self.brain)
 #        elif self.browser.figure is None:
 #            self.browser = do_browse(self.current_invasive_signal,
 #                bads=['LPT8'], n_channels=1,
