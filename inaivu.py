@@ -1,11 +1,12 @@
 from __future__ import division
 import os
+from conda_build.jinja_context import load_setuptools
 import numpy as np
 from traits.api import (HasTraits, Any, Dict, Instance, Str, Float,
     Range, on_trait_change, File, Button, Int, Bool, Enum, List)
 from traitsui.api import (View, Item, Group, OKCancelButtons, ShellEditor,
     HGroup, VGroup, Handler, RangeEditor, Action, CancelButton, Handler,
-    NullEditor, Label, FileEditor, InstanceEditor)
+    NullEditor, Label, FileEditor, InstanceEditor, Tabbed, MenuBar, Menu)
 from error_dialog import error_dialog
 
 from custom_list_editor import CustomListEditor
@@ -19,16 +20,6 @@ from collections import OrderedDict
 
 import source_signal
 
-class InvasiveFile(HasTraits):
-
-    invasive_file = File
-    file_label = Str
-
-    traits_view = View(Item(name='file', editor=FileEditor()),
-                       Item(name='label'), )
-
-
-
 class InaivuModel(Handler):
 
     brain = Any # Instance(surfer.viz.Brain)
@@ -38,6 +29,7 @@ class InaivuModel(Handler):
 
     scene = Any # mayavi.core.Scene
     scene = Instance(MlabSceneModel, ())
+    settings_window = Instance(HasTraits)
 
     _time_low = Float(0)
     _time_high = Float(1)
@@ -70,9 +62,6 @@ class InaivuModel(Handler):
     current_script_file = File
     run_script_button = Button('Load')
 
-    invaisve_data_file = Instance(InvasiveFile)
-    invaisve_data_files = List(InvasiveFile) # Gx2 list
-
     # movie window
     make_movie_button = Button('Movie')
 
@@ -97,6 +86,7 @@ class InaivuModel(Handler):
     movie_sample_which_first = Enum('invasive', 'noninvasive')
 
     OKMakeMovieAction = Action(name='Make movie', action='do_movie')
+    openSettings = Action(name='set input files', action='open_settings')
 
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
@@ -113,10 +103,24 @@ class InaivuModel(Handler):
             Item('current_script_file', show_label=False),
             Item('run_script_button', show_label=False),
         ),
-        VGroup(
-            Label('Invaisve data files:'),
-            Item('invaisve_data_files', editor=CustomListEditor(
-                editor=InstanceEditor(name='invaisve_data_file',editable=True), style='custom'), show_label=False, ),
+        # Tabbed(
+        #     VGroup(
+        #         Label('Invaisve data files:'),
+        #         Item('invaisve_data_files', editor=CustomListEditor(
+        #             editor=InstanceEditor(), style='custom', rows=5), show_label=False, ),
+        #         label='Invaisve',
+        #     ),
+        #     VGroup(
+        #         Label('MEG data files:'),
+        #         Item('meg_data_files', editor=CustomListEditor(
+        #             editor=InstanceEditor(), style='custom', rows=5), show_label=False, ),
+        #         label='MEG',
+        #     ),
+        # ),
+        menubar = MenuBar(
+            Menu(openSettings,
+                 name='Settings',
+            ),
         ),
         #Item('time_slider', style='custom', show_label=False),
         # Item('shell', editor=ShellEditor(), height=300, show_label=False),
@@ -180,6 +184,24 @@ class InaivuModel(Handler):
         title='Chimer exodus from Aldmeris',
         buttons=[OKMakeMovieAction, CancelButton],
     )
+
+    def open_settings(self, info):
+        import settings
+        settings.init_settings(self)
+
+    def load_data(self, settings):
+        os.environ["SUBJECTS_DIR"] = settings.subjects_dir
+        os.environ["SUBJECT"] = settings.subject
+        self.build_surface(subject=settings.subject, subjects_dir=settings.subjects_dir)
+        self.plot_ieeg(montage=settings.montage_file)
+        for f in settings.invaisve_data_files:
+            invsig_file = source_signal.create_signal_from_fieldtrip_stclike(
+                f.invasive_file, f.source_field, ordering=f.ordering_file, hemi='lh', invasive=True, tmin=.001)
+            self.add_invasive_signal(f.file_label, invsig_file)
+        from scipy import io
+        for f in settings.meg_data_files:
+            megsig = io.loadmat(f.meg_file)
+            self.add_meg_signal(f.file_label, megsig)
 
     def _make_movie_button_fired(self):
         self.edit_traits(view='make_movie_view')
@@ -896,6 +918,7 @@ class InaivuModel(Handler):
 
         return all_times, data, interp_func, nr_samples
 
+
 if __name__=='__main__':
     #force Qt to relay ctrl+C
     import signal
@@ -903,3 +926,8 @@ if __name__=='__main__':
 
     im = InaivuModel()
     im.configure_traits()
+
+    invasive_file = File
+    ordering_file = File
+    file_label = Str
+    source_field = Str
