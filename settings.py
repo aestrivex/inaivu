@@ -35,9 +35,11 @@ class SettingsWindow(Handler):
     subjects_dir = Str
     subject = Str
     montage_file = File
+    lh_overlay = File
+    rh_overlay = File
     invaisve_data_files = List(Instance(InvasiveFile, ())) # Not sure why, but the '()' must be here
     meg_data_files = List(Instance(MEGFile, ())) # Not sure why, but the '()' must be here
-    save_values_button = Action(name = 'Save', action = '_save_values')
+    save_values_button = Action(name = 'Load', action = '_save_values')
 
     traits_view = View(
         Tabbed(
@@ -48,16 +50,28 @@ class SettingsWindow(Handler):
                 label='Subject'
             ),
             VGroup(
-                Label('Invaisve data files:'),
-                Item('invaisve_data_files', editor=CustomListEditor(
-                    editor=InstanceEditor(), style='custom', rows=5), show_label=False, ),
-                label='Invaisve',
+                Label('Surfaces Overlays:'),
+                HGroup (
+                    Label('Left:  '),
+                    Item(name="lh_overlay", editor=FileEditor(), show_label=False),
+                ),
+                HGroup (
+                    Label('Right:'),
+                    Item(name="rh_overlay", editor=FileEditor(), show_label=False),
+                ),
+                label='fMRI',
             ),
             VGroup(
-                Label('MEG data files:'),
+                Label('MEG'),
                 Item('meg_data_files', editor=CustomListEditor(
                     editor=InstanceEditor(), style='custom', rows=5), show_label=False, ),
                 label='MEG',
+            ),
+            VGroup(
+                Label('Invaisve'),
+                Item('invaisve_data_files', editor=CustomListEditor(
+                    editor=InstanceEditor(), style='custom', rows=5), show_label=False, ),
+                label='Invaisve',
             ),
         ),
         buttons = [save_values_button],
@@ -82,6 +96,11 @@ def load_settings():
             # Set default values for the data files
             for k, v in settings.iteritems():
                 data[k] = v
+            # Check for default values
+            if data['subject']=='':
+                data['subject'] = os.environ['SUBJECT']
+            if data['subjects_dir']=='':
+                data['subjects_dir'] = os.environ['SUBJECTS_DIR']
             data['invaisve_data_files'] = [InvasiveFile(
                 invasive_file=f['invasive_file'],
                 ordering_file=f['ordering_file'],
@@ -113,11 +132,16 @@ def save_settings(window):
 
 def init_settings(model):
     settings = load_settings()
-    settings_window = SettingsWindow(
-        model=model,
-        invaisve_data_files=settings['invaisve_data_files'],
-        meg_data_files=settings['meg_data_files'],
-        subjects_dir=settings['subjects_dir'],
-        subject=settings['subject'],
-        montage_file=settings['montage_file'])
+    settings_window = SettingsWindow()
+    settings_window.model = model
+    for k, v in settings.iteritems():
+        setattr(settings_window, k, v)
+        # model=model,
+        # invaisve_data_files=settings['invaisve_data_files'],
+        # meg_data_files=settings['meg_data_files'],
+        # subjects_dir=settings['subjects_dir'],
+        # subject=settings['subject'],
+        # montage_file=settings['montage_file'],
+        # lh_overlay=settings['lh_overlay'],
+        # rh_overlay=settings['rh_overlay'])
     settings_window.edit_traits()

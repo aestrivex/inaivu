@@ -60,8 +60,8 @@ class InaivuModel(Handler):
     browser = Any #Instance(BrowseStc)
 
     current_script_file = File
-    run_script_button = Button('Load')
-
+    # run_script_button = Button('Load')
+    open_settings_button = Button('Load Settings')
     # movie window
     make_movie_button = Button('Movie')
 
@@ -86,7 +86,7 @@ class InaivuModel(Handler):
     movie_sample_which_first = Enum('invasive', 'noninvasive')
 
     OKMakeMovieAction = Action(name='Make movie', action='do_movie')
-    openSettings = Action(name='set input files', action='open_settings')
+    # openSettings = Action(name='set input files', action='open_settings')
 
     traits_view = View(
         Item('scene', editor=SceneEditor(scene_class=MayaviScene),
@@ -99,9 +99,10 @@ class InaivuModel(Handler):
         ),
         HGroup(
             Item('make_movie_button', show_label=False),
-            Label('Subject'),
-            Item('current_script_file', show_label=False),
-            Item('run_script_button', show_label=False),
+            # Label('Subject'),
+            Item('open_settings_button', show_label=False),
+            # Item('current_script_file', show_label=False),
+            # Item('run_script_button', show_label=False),
         ),
         # Tabbed(
         #     VGroup(
@@ -117,11 +118,11 @@ class InaivuModel(Handler):
         #         label='MEG',
         #     ),
         # ),
-        menubar = MenuBar(
-            Menu(openSettings,
-                 name='Settings',
-            ),
-        ),
+        # menubar = MenuBar(
+        #     Menu(openSettings,
+        #          name='Settings',
+        #     ),
+        # ),
         #Item('time_slider', style='custom', show_label=False),
         # Item('shell', editor=ShellEditor(), height=300, show_label=False),
         
@@ -130,9 +131,13 @@ class InaivuModel(Handler):
         resizable=True,
     )
 
-    def _run_script_button_fired(self):
-        with open(self.current_script_file) as fd:
-            exec(fd)
+    # def _run_script_button_fired(self):
+    #     with open(self.current_script_file) as fd:
+    #         exec(fd)
+
+    def _open_settings_button_fired(self):
+        import settings
+        settings.init_settings(self)
 
     make_movie_view = View(
         Label('Click make movie to specify filename'),
@@ -185,15 +190,27 @@ class InaivuModel(Handler):
         buttons=[OKMakeMovieAction, CancelButton],
     )
 
-    def open_settings(self, info):
-        import settings
-        settings.init_settings(self)
+    # def open_settings(self, info):
+    #     import settings
+    #     settings.init_settings(self)
 
     def load_data(self, settings):
         os.environ["SUBJECTS_DIR"] = settings.subjects_dir
         os.environ["SUBJECT"] = settings.subject
         self.build_surface(subject=settings.subject, subjects_dir=settings.subjects_dir)
         self.plot_ieeg(montage=settings.montage_file)
+        if settings.rh_overlay != '':
+            self.brain.add_overlay(settings.rh_overlay ,hemi='rh')
+        if settings.lh_overlay != '':
+            self.brain.add_overlay(settings.lh_overlay, hemi='lh')
+        # set the overlays unpickable and hide thte sig bar
+        for overlay in self.brain.overlays_dict.values():
+            overlay[0].neg.actor.actor.pickable = False
+            overlay[0].pos.actor.actor.pickable = False
+            overlay[0].neg.actor.property.opacity = self.opacity
+            overlay[0].pos.actor.property.opacity = self.opacity
+            overlay[0].neg_bar._hideshow()
+            overlay[0].pos_bar._hideshow()
         for f in settings.invaisve_data_files:
             invsig_file = source_signal.create_signal_from_fieldtrip_stclike(
                 f.invasive_file, f.source_field, ordering=f.ordering_file, hemi='lh', invasive=True, tmin=.001)
